@@ -1,0 +1,3 @@
+[submodule "file_reader"]
+	path = file_reader
+	url = https://forgejo.luna4.xyz/Luna/file_reader
