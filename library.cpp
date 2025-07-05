@@ -39,6 +39,8 @@ char * read_png(const std::string &file_path)
 	while (true)
 	{
 		buffer chunk_type{0};
+		chunk_type.allocated = 0;
+		chunk_type.data = nullptr;
 		chunk_type.size = 4;
 		auto chunk_head = std::make_tuple((unsigned int)0, chunk_type);
 		auto ret = reader.read_from_tuple(chunk_head);
@@ -48,11 +50,9 @@ char * read_png(const std::string &file_path)
 		buffer data_body{0};
 		data_body.size = std::get<0>(chunk_head);
 		auto data = std::make_tuple(data_body, chunk_type);
-		ret = reader.read_from_tuple(data);
-		if (ret.second == READ_INCOMPLETE || ret.second == READ_FILE_ENDED)
-			throw std::runtime_error("Incomplete chunk");
+		auto ree = reader.read_from_tuple(data);
+		std::println("Size received {}", ree.first);
 		if (strcmp("IHDR", std::get<1>(chunk_head).data) == 0)
 			meta = parse_metadata(std::get<0>(data));
-		break;
 	}
 }
