@@ -1,4 +1,4 @@
-#include "library.h"
+#include "lily_png.h"
 
 #include <iostream>
 
@@ -23,7 +23,7 @@ static metadata parse_metadata(buffer &data)
 	return m;
 }
 
-char * read_png(const std::string &file_path)
+buffer read_png(const std::string &file_path)
 {
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
 	file_reader reader(file_path);
@@ -36,6 +36,7 @@ char * read_png(const std::string &file_path)
 	if (memcmp(magic, std::get<0>(head_tup).data, 8) != 0)
 		throw std::runtime_error("File is not a png");
 	metadata meta{0};
+	buffer image_data{0};
 	while (true)
 	{
 		buffer chunk_type{0};
@@ -54,5 +55,16 @@ char * read_png(const std::string &file_path)
 		std::println("Size received {}", ree.first);
 		if (strcmp("IHDR", std::get<1>(chunk_head).data) == 0)
 			meta = parse_metadata(std::get<0>(data));
+		else if (strcmp("IDAT", std::get<1>(chunk_head).data) == 0)
+		{
+			buffer &temp_buf = std::get<0>(data);
+			image_data.write(temp_buf.data, temp_buf.size);
+		}
+		else if (strcmp("IEND",std::get<1>(chunk_head).data) == 0)
+			break;
 	}
+	std::println("Image data size {}", image_data.size);
+	std::println("Image data allocated {}", image_data.allocated);
+	std::println("Allocations {}", image_data.allocations);
+	return image_data;
 }

@@ -14,4 +14,4 @@ struct metadata
 	char interface;
 };
 
-char *read_png(const std::string &file_path);
+buffer read_png(const std::string &file_path);
