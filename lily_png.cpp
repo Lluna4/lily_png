@@ -1,7 +1,5 @@
 #include "lily_png.h"
 
-#include <iostream>
-
 static metadata parse_metadata(buffer &data)
 {
 	std::tuple<unsigned int, unsigned int, char, char, char, char, char> meta;
@@ -23,7 +21,7 @@ static metadata parse_metadata(buffer &data)
 	return m;
 }
 
-buffer read_png(const std::string &file_path)
+buffer_unsigned read_png(const std::string &file_path)
 {
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
 	file_reader reader(file_path);
@@ -36,7 +34,8 @@ buffer read_png(const std::string &file_path)
 	if (memcmp(magic, std::get<0>(head_tup).data, 8) != 0)
 		throw std::runtime_error("File is not a png");
 	metadata meta{0};
-	buffer image_data{0};
+	buffer_unsigned image_data_concat{0};
+	buffer_unsigned image_data{0};
 	while (true)
 	{
 		buffer chunk_type{0};
@@ -50,21 +49,49 @@ buffer read_png(const std::string &file_path)
 		std::println("Header stats size {} type {}", std::get<0>(chunk_head), std::get<1>(chunk_head).data);
 		buffer data_body{0};
 		data_body.size = std::get<0>(chunk_head);
-		auto data = std::make_tuple(data_body, chunk_type);
+		auto data = std::make_tuple(data_body, (unsigned int)0);
 		auto ree = reader.read_from_tuple(data);
+		unsigned long crc = crc32(0, reinterpret_cast<unsigned char *>(std::get<1>(chunk_head).data), std::get<1>(chunk_head).size);
+		crc = crc32(crc, reinterpret_cast<unsigned char *>(std::get<0>(data).data), std::get<0>(data).size);
+		if (crc != std::get<1>(data))
+			throw std::runtime_error("Crc check failed");
 		std::println("Size received {}", ree.first);
 		if (strcmp("IHDR", std::get<1>(chunk_head).data) == 0)
 			meta = parse_metadata(std::get<0>(data));
 		else if (strcmp("IDAT", std::get<1>(chunk_head).data) == 0)
 		{
 			buffer &temp_buf = std::get<0>(data);
-			image_data.write(temp_buf.data, temp_buf.size);
+			image_data_concat.write(reinterpret_cast<unsigned char *>(temp_buf.data), temp_buf.size);
 		}
 		else if (strcmp("IEND",std::get<1>(chunk_head).data) == 0)
 			break;
 	}
-	std::println("Image data size {}", image_data.size);
-	std::println("Image data allocated {}", image_data.allocated);
-	std::println("Allocations {}", image_data.allocations);
+	std::println("Image data size {}", image_data_concat.size);
+	std::println("Image data allocated {}", image_data_concat.allocated);
+	std::println("Allocations {}", image_data_concat.allocations);
+	image_data.allocate(image_data_concat.allocated);
+	uncompress(image_data.data, &image_data.allocated, image_data_concat.data, image_data_concat.size);
+	std::println("Filter {}", (int)meta.filter);
+
+	switch (meta.filter)
+	{
+		case 0:
+			break;
+		case 1:
+			std::println("sub filter now implemented");
+			break;
+		case 2:
+			std::println("up filter now implemented");
+			break;
+		case 3:
+			std::println("average filter now implemented");
+			break;
+		case 4:
+			std::println("paeth filter now implemented");
+			break;
+		default:
+			std::println("Filter not recognised");
+			break;
+	}
 	return image_data;
 }

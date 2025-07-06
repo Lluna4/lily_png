@@ -2,6 +2,7 @@
 
 #include "file_reader/src/file_read.h"
 #include <string>
+#include <zlib.h>
 
 struct metadata
 {
@@ -14,4 +15,4 @@ struct metadata
 	char interface;
 };
 
-buffer read_png(const std::string &file_path);
+buffer_unsigned read_png(const std::string &file_path);
