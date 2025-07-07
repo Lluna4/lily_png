@@ -21,6 +21,63 @@ static metadata parse_metadata(buffer &data)
 	return m;
 }
 
+static size_t get_uncompressed_size(const metadata meta)
+{
+	size_t ret = 0;
+	switch (meta.color_type)
+	{
+		case 0:
+			if (meta.bit_depth == 1 || meta.bit_depth == 2 || meta.bit_depth == 4 || meta.bit_depth == 8 || meta.bit_depth == 16)
+			{
+				size_t size_per_row = ceil((meta.width * (meta.bit_depth))/8) + 1;
+				ret = size_per_row * meta.height;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		case 2:
+			if (meta.bit_depth == 8 || meta.bit_depth == 16)
+			{
+				size_t size_per_row = ceil((meta.width * (meta.bit_depth * 3))/8) + 1;
+				ret = size_per_row * meta.height;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		case 3:
+			if (meta.bit_depth == 1 || meta.bit_depth == 2 || meta.bit_depth == 4 || meta.bit_depth == 8)
+			{
+				size_t size_per_row = ceil((meta.width * (meta.bit_depth))/8) + 1;
+				ret = size_per_row * meta.height;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		case 4:
+			if (meta.bit_depth == 8 || meta.bit_depth == 16)
+			{
+				size_t size_per_row = ceil((meta.width * (meta.bit_depth * 2))/8) + 1;
+				ret = size_per_row * meta.height;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		case 6:
+			if (meta.bit_depth == 8 || meta.bit_depth == 16)
+			{
+				size_t size_per_row = ceil((meta.width * (meta.bit_depth * 4))/8) + 1;
+				ret = size_per_row * meta.height;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		default:
+			throw std::runtime_error("Invalid color type");
+	}
+	std::println("Uncompressed size {}", ret);
+	return ret;
+}
+
 buffer_unsigned read_png(const std::string &file_path)
 {
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
@@ -69,8 +126,16 @@ buffer_unsigned read_png(const std::string &file_path)
 	std::println("Image data size {}", image_data_concat.size);
 	std::println("Image data allocated {}", image_data_concat.allocated);
 	std::println("Allocations {}", image_data_concat.allocations);
-	image_data.allocate(image_data_concat.allocated);
-	uncompress(image_data.data, &image_data.allocated, image_data_concat.data, image_data_concat.size);
+	image_data.allocate(get_uncompressed_size(meta));
+	size_t prev_allocated = image_data.allocated;
+	int r = uncompress(image_data.data, &prev_allocated, image_data_concat.data, image_data_concat.size);
+	if (r != Z_OK)
+	{
+		std::println("Uncompress failed {}", r);
+		throw std::runtime_error("Uncompress fail");
+	}
+	image_data.size = prev_allocated;
+	std::println("Raw size {}", image_data.size);
 	std::println("Filter {}", (int)meta.filter);
 
 	switch (meta.filter)
@@ -78,16 +143,16 @@ buffer_unsigned read_png(const std::string &file_path)
 		case 0:
 			break;
 		case 1:
-			std::println("sub filter now implemented");
+			std::println("sub filter not implemented");
 			break;
 		case 2:
-			std::println("up filter now implemented");
+			std::println("up filter not implemented");
 			break;
 		case 3:
-			std::println("average filter now implemented");
+			std::println("average filter not implemented");
 			break;
 		case 4:
-			std::println("paeth filter now implemented");
+			std::println("paeth filter not implemented");
 			break;
 		default:
 			std::println("Filter not recognised");
