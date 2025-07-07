@@ -1,4 +1,5 @@
 #include "lily_png.h"
+#include <math.h>
 
 static metadata parse_metadata(buffer &data)
 {
@@ -117,8 +118,7 @@ buffer_unsigned read_png(const std::string &file_path)
 			meta = parse_metadata(std::get<0>(data));
 		else if (strcmp("IDAT", std::get<1>(chunk_head).data) == 0)
 		{
-			buffer &temp_buf = std::get<0>(data);
-			image_data_concat.write(reinterpret_cast<unsigned char *>(temp_buf.data), temp_buf.size);
+			image_data_concat.write(reinterpret_cast<unsigned char *>(std::get<0>(data).data), std::get<0>(data).size);
 		}
 		else if (strcmp("IEND",std::get<1>(chunk_head).data) == 0)
 			break;
@@ -128,7 +128,7 @@ buffer_unsigned read_png(const std::string &file_path)
 	std::println("Allocations {}", image_data_concat.allocations);
 	image_data.allocate(get_uncompressed_size(meta));
 	size_t prev_allocated = image_data.allocated;
-	int r = uncompress(image_data.data, &prev_allocated, image_data_concat.data, image_data_concat.size);
+	int r = uncompress(image_data.data, &prev_allocated, image_data_concat.data, image_data_concat.allocated);
 	if (r != Z_OK)
 	{
 		std::println("Uncompress failed {}", r);
