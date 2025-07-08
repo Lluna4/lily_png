@@ -79,84 +79,66 @@ static size_t get_uncompressed_size(const metadata meta)
 	return ret;
 }
 
-buffer_unsigned read_png(const std::string &file_path)
+void read_png(const std::string &file_path, buffer_unsigned &data)
 {
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
 	file_reader reader(file_path);
-	buffer head = {0};
-	head.size = 8;
-	auto head_tup = std::make_tuple(head);
-	auto re = reader.read_from_tuple(head_tup);
-	if (re.second == READ_INCOMPLETE || re.second == READ_FILE_ENDED)
-		throw std::runtime_error("Not enough size to read header");
-	if (memcmp(magic, std::get<0>(head_tup).data, 8) != 0)
-		throw std::runtime_error("File is not a png");
-	metadata meta{0};
-	buffer_unsigned image_data_concat{0};
-	buffer_unsigned image_data{0};
+	char file_magic[9] = {0};
+	reader.read_buffer(file_magic, 8);
+	if (memcmp(magic, file_magic, 8) != 0)
+	{
+		std::println("File is not a png!");
+		return ;
+	}
+	buffer_unsigned raw_dat{};
+	metadata meta{};
 	while (true)
 	{
-		buffer chunk_type{0};
-		chunk_type.allocated = 0;
-		chunk_type.data = nullptr;
-		chunk_type.size = 4;
-		auto chunk_head = std::make_tuple((unsigned int)0, chunk_type);
-		auto ret = reader.read_from_tuple(chunk_head);
-		if (ret.second == READ_INCOMPLETE || ret.second == READ_FILE_ENDED)
-			throw std::runtime_error("Incomplete chunk");
-		std::println("Header stats size {} type {}", std::get<0>(chunk_head), std::get<1>(chunk_head).data);
-		buffer data_body{0};
-		data_body.size = std::get<0>(chunk_head);
-		auto data = std::make_tuple(data_body, (unsigned int)0);
-		auto ree = reader.read_from_tuple(data);
-		unsigned long crc = crc32(0, reinterpret_cast<unsigned char *>(std::get<1>(chunk_head).data), std::get<1>(chunk_head).size);
-		crc = crc32(crc, reinterpret_cast<unsigned char *>(std::get<0>(data).data), std::get<0>(data).size);
-		if (crc != std::get<1>(data))
-			throw std::runtime_error("Crc check failed");
-		std::println("Size received {}", ree.first);
-		if (strcmp("IHDR", std::get<1>(chunk_head).data) == 0)
-			meta = parse_metadata(std::get<0>(data));
-		else if (strcmp("IDAT", std::get<1>(chunk_head).data) == 0)
+		std::tuple<unsigned int, buffer> chunk_header;
+		std::get<1>(chunk_header).size = 4;
+		auto ret = reader.read_from_tuple(chunk_header);
+		if (ret.second == READ_FILE_ENDED || ret.second == READ_INCOMPLETE)
 		{
-			image_data_concat.write(reinterpret_cast<unsigned char *>(std::get<0>(data).data), std::get<0>(data).size);
+			std::println("Chunk incomplete!");
+			return ;
 		}
-		else if (strcmp("IEND",std::get<1>(chunk_head).data) == 0)
+
+		std::println("Chunk type {} Size {}", std::get<1>(chunk_header).data, std::get<0>(chunk_header));
+
+		buffer_unsigned raw_data{};
+		raw_data.size = std::get<0>(chunk_header);
+		std::tuple<buffer, unsigned> dat;
+		std::get<0>(dat).size = std::get<0>(chunk_header);
+		ret = reader.read_from_tuple(dat);
+		if (ret.second == READ_FILE_ENDED || ret.second == READ_INCOMPLETE)
+		{
+			std::println("Chunk incomplete!");
+			return ;
+		}
+		unsigned long crc = crc32(0, reinterpret_cast<unsigned char *>(std::get<1>(chunk_header).data), 4);
+		crc = crc32(crc, reinterpret_cast<unsigned char *>(std::get<0>(dat).data), std::get<0>(chunk_header));
+		if (crc != std::get<1>(dat))
+			throw std::runtime_error("Crc check failed");
+
+
+		if (strncmp(std::get<1>(chunk_header).data, "IDAT", 4) == 0)
+		{
+			raw_dat.write(reinterpret_cast<unsigned char *>(std::get<0>(dat).data), std::get<0>(chunk_header));
+		}
+		else if (strncmp(std::get<1>(chunk_header).data, "IHDR", 4) == 0)
+		{
+			meta = parse_metadata(std::get<0>(dat));
+		}
+		else if (strncmp(std::get<1>(chunk_header).data, "IEND", 4) == 0)
 			break;
 	}
-	std::println("Image data size {}", image_data_concat.size);
-	std::println("Image data allocated {}", image_data_concat.allocated);
-	std::println("Allocations {}", image_data_concat.allocations);
-	image_data.allocate(get_uncompressed_size(meta));
-	size_t prev_allocated = image_data.allocated;
-	int r = uncompress(image_data.data, &prev_allocated, image_data_concat.data, image_data_concat.allocated);
+
+	data.allocate(get_uncompressed_size(meta));
+	size_t prev_allocated = data.allocated;
+	int r = uncompress(data.data, &prev_allocated, raw_dat.data, raw_dat.allocated);
 	if (r != Z_OK)
 	{
 		std::println("Uncompress failed {}", r);
 		throw std::runtime_error("Uncompress fail");
 	}
-	image_data.size = prev_allocated;
-	std::println("Raw size {}", image_data.size);
-	std::println("Filter {}", (int)meta.filter);
-
-	switch (meta.filter)
-	{
-		case 0:
-			break;
-		case 1:
-			std::println("sub filter not implemented");
-			break;
-		case 2:
-			std::println("up filter not implemented");
-			break;
-		case 3:
-			std::println("average filter not implemented");
-			break;
-		case 4:
-			std::println("paeth filter not implemented");
-			break;
-		default:
-			std::println("Filter not recognised");
-			break;
-	}
-	return image_data;
 }

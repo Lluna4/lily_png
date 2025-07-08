@@ -15,4 +15,4 @@ struct metadata
 	char interface;
 };
 
-buffer_unsigned read_png(const std::string &file_path);
+void read_png(const std::string &file_path, buffer_unsigned &data);
