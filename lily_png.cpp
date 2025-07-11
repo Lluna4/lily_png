@@ -22,6 +22,57 @@ static metadata parse_metadata(buffer &data)
 	return m;
 }
 
+static size_t get_pixel_bit_size(const metadata &meta)
+{
+	size_t ret = 0;
+	switch (meta.color_type)
+	{
+		case 0:
+			if (meta.bit_depth == 1 || meta.bit_depth == 2 || meta.bit_depth == 4 || meta.bit_depth == 8 || meta.bit_depth == 16)
+			{
+				ret = meta.bit_depth;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		case 2:
+			if (meta.bit_depth == 8 || meta.bit_depth == 16)
+			{
+				ret = meta.bit_depth * 3;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		case 3:
+			if (meta.bit_depth == 1 || meta.bit_depth == 2 || meta.bit_depth == 4 || meta.bit_depth == 8)
+			{
+				ret = meta.bit_depth;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		case 4:
+			if (meta.bit_depth == 8 || meta.bit_depth == 16)
+			{
+				ret = meta.bit_depth * 2;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		case 6:
+			if (meta.bit_depth == 8 || meta.bit_depth == 16)
+			{
+				ret = meta.bit_depth * 4;
+			}
+			else
+				throw std::runtime_error("Invalid bit depht");
+			break;
+		default:
+			throw std::runtime_error("Invalid color type");
+	}
+	return ret;
+}
+
 static size_t get_uncompressed_size(const metadata meta)
 {
 	size_t ret = 0;
@@ -79,7 +130,7 @@ static size_t get_uncompressed_size(const metadata meta)
 	return ret;
 }
 
-void read_png(const std::string &file_path, buffer_unsigned &data)
+static void read_raw_data(const std::string &file_path, buffer_unsigned &data, metadata &meta)
 {
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
 	file_reader reader(file_path);
@@ -91,7 +142,6 @@ void read_png(const std::string &file_path, buffer_unsigned &data)
 		return ;
 	}
 	buffer_unsigned raw_dat{};
-	metadata meta{};
 	while (true)
 	{
 		std::tuple<unsigned int, buffer> chunk_header;
@@ -141,4 +191,104 @@ void read_png(const std::string &file_path, buffer_unsigned &data)
 		std::println("Uncompress failed {}", r);
 		throw std::runtime_error("Uncompress fail");
 	}
+}
+
+template <typename T>
+T paeth_predict(T a, T b, T c)
+{
+	T pred = a+b-c;
+	T pred1 = abs(pred - a);
+	T pred2 = abs(pred - b);
+	T pred3 = abs(pred - c);
+	if (pred1 <= pred2 && pred1 <= pred3)
+		return a;
+	if (pred2 <= pred3)
+		return b;
+	return c;
+}
+
+static void filter(buffer_unsigned &data, buffer_unsigned &dest ,metadata &meta)
+{
+	unsigned long index = 0;
+	unsigned long index_dest = 0;
+	size_t pixel_size = get_pixel_bit_size(meta);
+	unsigned long scanlines = 0;
+	dest.allocate(get_uncompressed_size(meta));
+	while (scanlines < meta.height)
+	{
+		unsigned char filter = 0;
+		for (int i = 0; i < (pixel_size/8) * meta.width + 1; i++)
+		{
+			if (i == 0)
+			{
+				filter = data.data[index + i];
+				continue;
+			}
+			long index_before = 0;
+			long index_before2 = 0;
+			long index_before3 = 0;
+			switch (filter)
+			{
+				case 0:
+					dest.data[index_dest] = data.data[index + i];
+					break;
+				case 1:
+					if (pixel_size < 8)
+						index_before = index + i - 1;
+					else
+						index_before = index + i - pixel_size/8;
+					if (index_before <= 0)
+						break;
+					dest.data[index_dest] = data.data[index + i] + dest.data[index_before];
+					break;
+				case 2:
+					index_before = (index + i) - (meta.width * (pixel_size/8));
+					if (index_before <= 0)
+						break;
+					dest.data[index_dest] = data.data[index + i] + dest.data[index_before];
+					break;
+				case 3:
+					if (pixel_size < 8)
+						index_before = index + i - 1;
+					else
+						index_before = index + i - pixel_size/8;
+					if (index_before <= 0)
+						break;
+					index_before2 = (index + i) - (meta.width * (pixel_size/8));
+					dest.data[index_dest] = data.data[index + i] + floor((dest.data[index_before] + dest.data[index_before2])/2);
+					break;
+				case 4:
+					if (pixel_size < 8)
+						index_before = index + i - 1;
+					else
+						index_before = index + i - pixel_size/8;
+					if (index_before <= 0)
+						break;
+					index_before2 = (index + i) - (meta.width * (pixel_size/8));
+					index_before3 = 0;
+					if (pixel_size < 8)
+						index_before3 = index_before2 + i - 1;
+					else
+						index_before3 = index_before2 + i - pixel_size/8;
+					if (index_before3 <= 0)
+						break;
+					dest.data[index_dest] = data.data[index + i] + paeth_predict(dest.data[index_before], dest.data[index_before2], dest.data[index_before3]);
+					break;
+				default:
+					std::println("Non standard filter");
+					break;
+			}
+			index_dest++;
+		}
+		index += (pixel_size/8) * meta.width + 1;
+		scanlines++;
+	}
+}
+
+void read_png(const std::string &file_path, buffer_unsigned &data)
+{
+	buffer_unsigned tmp_data{};
+	metadata meta{0};
+	read_raw_data(file_path, tmp_data, meta);
+	filter(tmp_data, data, meta);
 }
