@@ -1,3 +1,4 @@
+#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "lily_png.h"
 #include <math.h>
 
@@ -193,18 +194,68 @@ static void read_raw_data(const std::string &file_path, buffer_unsigned &data, m
 	}
 }
 
-template <typename T>
-T paeth_predict(T a, T b, T c)
+int paeth_predict(int a, int b, int c)
 {
-	T pred = a+b-c;
-	T pred1 = abs(pred - a);
-	T pred2 = abs(pred - b);
-	T pred3 = abs(pred - c);
+	int pred = a+b-c;
+	int pred1 = abs(pred - a);
+	int pred2 = abs(pred - b);
+	int pred3 = abs(pred - c);
 	if (pred1 <= pred2 && pred1 <= pred3)
 		return a;
 	if (pred2 <= pred3)
 		return b;
 	return c;
+}
+
+static void filter_scanline(unsigned char *scanline, unsigned char *previous_scanline, unsigned char *dest, metadata &meta, unsigned char filter_type)
+{
+	size_t pixel_size = get_pixel_bit_size(meta);
+	for (int i = 0; i < ceil(pixel_size/8.0f) * meta.width; i++)
+	{
+		long index_before = 0;
+		switch (filter_type)
+		{
+			case 0:
+				dest[i] = scanline[i];
+				break;
+			case 1:
+				if (pixel_size < 8)
+					index_before = i - 1;
+				else
+					index_before = i - ceil(pixel_size/8.0f);
+				if (index_before <= 0)
+					dest[i] = scanline[i] + 0;
+				else
+					dest[i] = scanline[i] + dest[index_before];
+				break;
+			case 2:
+				dest[i] = scanline[i] + previous_scanline[i];
+				break;
+			case 3:
+				if (pixel_size < 8)
+					index_before = i - 1;
+				else
+					index_before = i - ceil(pixel_size/8.0f);
+				if (index_before <= 0)
+					dest[i] = scanline[i] + floor((0 + previous_scanline[i])/2);
+				else
+					dest[i] = scanline[i] + floor((dest[index_before] + previous_scanline[i])/2);
+				break;
+			case 4:
+				if (pixel_size < 8)
+					index_before = i - 1;
+				else
+					index_before = i - ceil(pixel_size/8.0f);
+				if (index_before <= 0)
+					dest[i] = scanline[i] + paeth_predict(0, previous_scanline[i], 0);
+				else
+					dest[i] = scanline[i] + paeth_predict(dest[index_before], previous_scanline[i], previous_scanline[index_before]);
+				break;
+			default:
+				std::println("Non standard filter");
+				break;
+		}
+	}
 }
 
 static void filter(buffer_unsigned &data, buffer_unsigned &dest ,metadata &meta)
@@ -214,76 +265,19 @@ static void filter(buffer_unsigned &data, buffer_unsigned &dest ,metadata &meta)
 	size_t pixel_size = get_pixel_bit_size(meta);
 	unsigned long scanlines = 0;
 	dest.allocate(get_uncompressed_size(meta));
+	unsigned char *previous_scanline = nullptr;
 	while (scanlines < meta.height)
 	{
-		unsigned char filter = 0;
-		for (int i = 0; i < (pixel_size/8) * meta.width + 1; i++)
-		{
-			if (i == 0)
-			{
-				filter = data.data[index + i];
-				continue;
-			}
-			long index_before = 0;
-			long index_before2 = 0;
-			long index_before3 = 0;
-			switch (filter)
-			{
-				case 0:
-					dest.data[index_dest] = data.data[index + i];
-					break;
-				case 1:
-					if (pixel_size < 8)
-						index_before = index + i - 1;
-					else
-						index_before = index + i - pixel_size/8;
-					if (index_before <= 0)
-						break;
-					dest.data[index_dest] = data.data[index + i] + dest.data[index_before];
-					break;
-				case 2:
-					index_before = (index + i) - (meta.width * (pixel_size/8));
-					if (index_before <= 0)
-						break;
-					dest.data[index_dest] = data.data[index + i] + dest.data[index_before];
-					break;
-				case 3:
-					if (pixel_size < 8)
-						index_before = index + i - 1;
-					else
-						index_before = index + i - pixel_size/8;
-					if (index_before <= 0)
-						break;
-					index_before2 = (index + i) - (meta.width * (pixel_size/8));
-					dest.data[index_dest] = data.data[index + i] + floor((dest.data[index_before] + dest.data[index_before2])/2);
-					break;
-				case 4:
-					if (pixel_size < 8)
-						index_before = index + i - 1;
-					else
-						index_before = index + i - pixel_size/8;
-					if (index_before <= 0)
-						break;
-					index_before2 = (index + i) - (meta.width * (pixel_size/8));
-					index_before3 = 0;
-					if (pixel_size < 8)
-						index_before3 = index_before2 + i - 1;
-					else
-						index_before3 = index_before2 + i - pixel_size/8;
-					if (index_before3 <= 0)
-						break;
-					dest.data[index_dest] = data.data[index + i] + paeth_predict(dest.data[index_before], dest.data[index_before2], dest.data[index_before3]);
-					break;
-				default:
-					std::println("Non standard filter");
-					break;
-			}
-			index_dest++;
-		}
-		index += (pixel_size/8) * meta.width + 1;
+		unsigned char filter = data.data[index];
+		std::println("Filter {}", filter);
+		filter_scanline(&data.data[index++], previous_scanline, &dest.data[index_dest], meta, filter);
+		previous_scanline = &dest.data[index_dest];
+		index += ceil(pixel_size/8.0f) * meta.width;
+		index_dest += ceil(pixel_size/8.0f) * meta.width;
 		scanlines++;
 	}
 }
+
 
 void read_png(const std::string &file_path, buffer_unsigned &data)
 {
