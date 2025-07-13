@@ -76,57 +76,8 @@ static size_t get_pixel_bit_size(const metadata &meta)
 
 static size_t get_uncompressed_size(const metadata meta)
 {
-	size_t ret = 0;
-	switch (meta.color_type)
-	{
-		case 0:
-			if (meta.bit_depth == 1 || meta.bit_depth == 2 || meta.bit_depth == 4 || meta.bit_depth == 8 || meta.bit_depth == 16)
-			{
-				size_t size_per_row = ceil((meta.width * (meta.bit_depth))/8) + 1;
-				ret = size_per_row * meta.height;
-			}
-			else
-				throw std::runtime_error("Invalid bit depht");
-			break;
-		case 2:
-			if (meta.bit_depth == 8 || meta.bit_depth == 16)
-			{
-				size_t size_per_row = ceil((meta.width * (meta.bit_depth * 3))/8) + 1;
-				ret = size_per_row * meta.height;
-			}
-			else
-				throw std::runtime_error("Invalid bit depht");
-			break;
-		case 3:
-			if (meta.bit_depth == 1 || meta.bit_depth == 2 || meta.bit_depth == 4 || meta.bit_depth == 8)
-			{
-				size_t size_per_row = ceil((meta.width * (meta.bit_depth))/8) + 1;
-				ret = size_per_row * meta.height;
-			}
-			else
-				throw std::runtime_error("Invalid bit depht");
-			break;
-		case 4:
-			if (meta.bit_depth == 8 || meta.bit_depth == 16)
-			{
-				size_t size_per_row = ceil((meta.width * (meta.bit_depth * 2))/8) + 1;
-				ret = size_per_row * meta.height;
-			}
-			else
-				throw std::runtime_error("Invalid bit depht");
-			break;
-		case 6:
-			if (meta.bit_depth == 8 || meta.bit_depth == 16)
-			{
-				size_t size_per_row = ceil((meta.width * (meta.bit_depth * 4))/8) + 1;
-				ret = size_per_row * meta.height;
-			}
-			else
-				throw std::runtime_error("Invalid bit depht");
-			break;
-		default:
-			throw std::runtime_error("Invalid color type");
-	}
+	size_t ret = (meta.width * get_pixel_bit_size(meta) + 7)/8; //ceil() but for bytes
+	ret = (ret + 1) * meta.height;
 	std::println("Uncompressed size {}", ret);
 	return ret;
 }
@@ -210,46 +161,38 @@ int paeth_predict(int a, int b, int c)
 static void filter_scanline(unsigned char *scanline, unsigned char *previous_scanline, unsigned char *dest, metadata &meta, unsigned char filter_type)
 {
 	size_t pixel_size = get_pixel_bit_size(meta);
-	for (int i = 0; i < ceil(pixel_size/8.0f) * meta.width; i++)
+	size_t pixel_size_bytes = (pixel_size + 7)/8;
+	size_t scanline_size = (meta.width * pixel_size + 7)/8;
+	for (int i = 0; i < scanline_size; i++)
 	{
 		long index_before = 0;
+		unsigned char a = 0;
+		unsigned char b = 0;
+		unsigned char c = 0;
+
+		if (i >= pixel_size_bytes)
+			a = dest[i - pixel_size_bytes];
+		if (previous_scanline != nullptr)
+			b = previous_scanline[i];
+		if (previous_scanline != nullptr && i >= pixel_size_bytes)
+			c = previous_scanline[i - pixel_size_bytes];
 		switch (filter_type)
 		{
 			case 0:
 				dest[i] = scanline[i];
 				break;
 			case 1:
-				if (pixel_size < 8)
-					index_before = i - 1;
-				else
-					index_before = i - ceil(pixel_size/8.0f);
-				if (index_before <= 0)
-					dest[i] = scanline[i] + 0;
-				else
-					dest[i] = scanline[i] + dest[index_before];
+				dest[i] = scanline[i] + a;
 				break;
 			case 2:
-				dest[i] = scanline[i] + previous_scanline[i];
+				dest[i] = scanline[i] + b;
 				break;
 			case 3:
-				if (pixel_size < 8)
-					index_before = i - 1;
-				else
-					index_before = i - ceil(pixel_size/8.0f);
-				if (index_before <= 0)
-					dest[i] = scanline[i] + floor((0 + previous_scanline[i])/2);
-				else
-					dest[i] = scanline[i] + floor((dest[index_before] + previous_scanline[i])/2);
+
+				dest[i] = scanline[i] + floor((a + b)/2);
 				break;
 			case 4:
-				if (pixel_size < 8)
-					index_before = i - 1;
-				else
-					index_before = i - ceil(pixel_size/8.0f);
-				if (index_before <= 0)
-					dest[i] = scanline[i] + paeth_predict(0, previous_scanline[i], 0);
-				else
-					dest[i] = scanline[i] + paeth_predict(dest[index_before], previous_scanline[i], previous_scanline[index_before]);
+				dest[i] = scanline[i] + paeth_predict(a, b, c);
 				break;
 			default:
 				std::println("Non standard filter");
@@ -263,6 +206,8 @@ static void filter(buffer_unsigned &data, buffer_unsigned &dest ,metadata &meta)
 	unsigned long index = 0;
 	unsigned long index_dest = 0;
 	size_t pixel_size = get_pixel_bit_size(meta);
+	size_t pixel_size_bytes = (pixel_size + 7)/8;
+	size_t scanline_size = (meta.width * pixel_size + 7)/8;
 	unsigned long scanlines = 0;
 	dest.allocate(get_uncompressed_size(meta));
 	unsigned char *previous_scanline = nullptr;
@@ -270,10 +215,10 @@ static void filter(buffer_unsigned &data, buffer_unsigned &dest ,metadata &meta)
 	{
 		unsigned char filter = data.data[index];
 		std::println("Filter {}", filter);
-		filter_scanline(&data.data[index++], previous_scanline, &dest.data[index_dest], meta, filter);
+		filter_scanline(&data.data[index + 1], previous_scanline, &dest.data[index_dest], meta, filter);
 		previous_scanline = &dest.data[index_dest];
-		index += ceil(pixel_size/8.0f) * meta.width;
-		index_dest += ceil(pixel_size/8.0f) * meta.width;
+		index += scanline_size + 1;
+		index_dest += scanline_size;
 		scanlines++;
 	}
 }
