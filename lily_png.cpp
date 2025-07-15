@@ -1,6 +1,9 @@
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "lily_png.h"
 #include <math.h>
+#include <vector>
+
+std::vector<color> palette;
+bool palette_found = false;
 
 static metadata parse_metadata(buffer &data)
 {
@@ -84,6 +87,7 @@ static size_t get_uncompressed_size(const metadata meta)
 
 static void read_raw_data(const std::string &file_path, buffer_unsigned &data, metadata &meta)
 {
+	std::println("Zlib version is {}", zlibVersion());
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
 	file_reader reader(file_path);
 	char file_magic[9] = {0};
@@ -104,8 +108,8 @@ static void read_raw_data(const std::string &file_path, buffer_unsigned &data, m
 			std::println("Chunk incomplete!");
 			return ;
 		}
-
-		std::println("Chunk type {} Size {}", std::get<1>(chunk_header).data, std::get<0>(chunk_header));
+		unsigned int size = std::get<0>(chunk_header);
+		//std::println("Chunk type {} Size {}", std::get<1>(chunk_header).data, std::get<0>(chunk_header));
 
 		buffer_unsigned raw_data{};
 		raw_data.size = std::get<0>(chunk_header);
@@ -130,6 +134,23 @@ static void read_raw_data(const std::string &file_path, buffer_unsigned &data, m
 		else if (strncmp(std::get<1>(chunk_header).data, "IHDR", 4) == 0)
 		{
 			meta = parse_metadata(std::get<0>(dat));
+		}
+		else if (strncmp(std::get<1>(chunk_header).data, "PLTE", 4) == 0)
+		{
+			palette_found = true;
+			if (size%3 != 0)
+			{
+				std::println("Palette size is not divisible by 3");
+				return ;
+			}
+			for (int i = 0; i < size; i += 3)
+			{
+				color tmp_color;
+				tmp_color.r = std::get<0>(dat).data[i];
+				tmp_color.g = std::get<0>(dat).data[i + 1];
+				tmp_color.b = std::get<0>(dat).data[i + 2];
+				palette.push_back(tmp_color);
+			}
 		}
 		else if (strncmp(std::get<1>(chunk_header).data, "IEND", 4) == 0)
 			break;
@@ -223,11 +244,51 @@ static void filter(buffer_unsigned &data, buffer_unsigned &dest ,metadata &meta)
 	}
 }
 
+static void apply_palette_scanline(unsigned char *scanline, unsigned char *dest, metadata &meta)
+{
+	size_t pixel_size = get_pixel_bit_size(meta);
+	size_t pixel_size_bytes = (pixel_size + 7)/8;
+	size_t scanline_size = (meta.width * pixel_size + 7)/8;
+	unsigned long dest_index = 0;
+	for (int i = 0; i < scanline_size; i++)
+	{
+		color tmp_color = palette[scanline[i]];
+		dest[dest_index] = tmp_color.r;
+		dest[dest_index++] = tmp_color.g;
+		dest[dest_index++] = tmp_color.b;
+	}
+}
+
+static void apply_palette(buffer_unsigned &data, buffer_unsigned &dest, metadata &meta)
+{
+	unsigned long index = 0;
+	unsigned long index_dest = 0;
+	size_t pixel_size = get_pixel_bit_size(meta);
+	size_t pixel_size_bytes = (pixel_size + 7)/8;
+	size_t scanline_size = (meta.width * pixel_size + 7)/8;
+	unsigned long scanlines = 0;
+	dest.allocate(get_uncompressed_size(meta) * 3);
+	while (scanlines < meta.height)
+	{
+		unsigned char filter = data.data[index];
+		std::println("Filter {}", filter);
+		apply_palette_scanline(&data.data[index + 1], &dest.data[index_dest], meta);
+		index += scanline_size + 1;
+		index_dest += scanline_size;
+		scanlines++;
+	}
+}
 
 void read_png(const std::string &file_path, buffer_unsigned &data)
 {
 	buffer_unsigned tmp_data{};
 	metadata meta{0};
 	read_raw_data(file_path, tmp_data, meta);
+	if (palette_found == true)
+	{
+		buffer_unsigned dest_palette{};
+		apply_palette(tmp_data, dest_palette, meta);
+		tmp_data = dest_palette;
+	}
 	filter(tmp_data, data, meta);
 }
