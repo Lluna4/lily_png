@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD 23)
 add_subdirectory(file_reader)
 find_package(ZLIB)
 
-add_library(lily_png STATIC lily_png.cpp)
+add_library(lily_png STATIC src/lily_png.cpp
+        src/metadata.cpp
+        src/metadata.h
+        src/utils.cpp
+        src/utils.h
+        src/filter.cpp
+        src/filter.h)
 target_link_libraries(lily_png file_read ZLIB::ZLIB)
 
