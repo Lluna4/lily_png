@@ -43,7 +43,7 @@ void filter_scanline(unsigned char *scanline, unsigned char *previous_scanline, 
 	}
 }
 
-void filter(buffer_unsigned &data, buffer_unsigned &dest ,metadata &meta)
+void filter(buffer<unsigned char> &data, buffer<unsigned char> &dest ,metadata &meta)
 {
 	unsigned long index = 0;
 	unsigned long index_dest = 0;

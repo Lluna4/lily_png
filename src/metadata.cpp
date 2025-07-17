@@ -1,7 +1,7 @@
 #include "metadata.h"
 
 
-metadata parse_metadata(buffer &data)
+metadata parse_metadata(buffer<char> &data)
 {
 	std::tuple<unsigned int, unsigned int, char, char, char, char, char> meta;
 	constexpr std::size_t size = std::tuple_size_v<decltype(meta)>;

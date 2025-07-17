@@ -4,6 +4,7 @@ project(lily_png)
 set(CMAKE_CXX_STANDARD 23)
 
 add_subdirectory(file_reader)
+target_include_directories(file_read INTERFACE "file_reader")
 find_package(ZLIB)
 
 add_library(lily_png STATIC src/lily_png.cpp
@@ -13,5 +14,5 @@ add_library(lily_png STATIC src/lily_png.cpp
         src/utils.h
         src/filter.cpp
         src/filter.h)
-target_link_libraries(lily_png file_read ZLIB::ZLIB)
+target_link_libraries(lily_png PRIVATE file_read ZLIB::ZLIB)
 

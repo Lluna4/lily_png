@@ -3,7 +3,7 @@
 std::vector<color> palette;
 bool palette_found = false;
 
-static void read_raw_data(const std::string &file_path, buffer_unsigned &data, metadata &meta)
+static void read_raw_data(const std::string &file_path, buffer<unsigned char> &data, metadata &meta)
 {
 	std::println("Zlib version is {}", zlibVersion());
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
@@ -15,10 +15,10 @@ static void read_raw_data(const std::string &file_path, buffer_unsigned &data, m
 		std::println("File is not a png!");
 		return ;
 	}
-	buffer_unsigned raw_dat{};
+	buffer<unsigned char> raw_dat{};
 	while (true)
 	{
-		std::tuple<unsigned int, buffer> chunk_header;
+		std::tuple<unsigned int, buffer<char>> chunk_header;
 		std::get<1>(chunk_header).size = 4;
 		auto ret = reader.read_from_tuple(chunk_header);
 		if (ret.second == READ_FILE_ENDED || ret.second == READ_INCOMPLETE)
@@ -29,9 +29,9 @@ static void read_raw_data(const std::string &file_path, buffer_unsigned &data, m
 		unsigned int size = std::get<0>(chunk_header);
 		//std::println("Chunk type {} Size {}", std::get<1>(chunk_header).data, std::get<0>(chunk_header));
 
-		buffer_unsigned raw_data{};
+		buffer<unsigned char> raw_data{};
 		raw_data.size = std::get<0>(chunk_header);
-		std::tuple<buffer, unsigned> dat;
+		std::tuple<buffer<char>, unsigned> dat;
 		std::get<0>(dat).size = std::get<0>(chunk_header);
 		ret = reader.read_from_tuple(dat);
 		if (ret.second == READ_FILE_ENDED || ret.second == READ_INCOMPLETE)
@@ -100,7 +100,7 @@ static void apply_palette_scanline(unsigned char *scanline, unsigned char *dest,
 	}
 }
 
-static void apply_palette(buffer_unsigned &data, buffer_unsigned &dest, metadata &meta)
+static void apply_palette(buffer<unsigned char> &data, buffer<unsigned char> &dest, metadata &meta)
 {
 	unsigned long index = 0;
 	unsigned long index_dest = 0;
@@ -120,14 +120,14 @@ static void apply_palette(buffer_unsigned &data, buffer_unsigned &dest, metadata
 	}
 }
 
-void read_png(const std::string &file_path, buffer_unsigned &data)
+void read_png(const std::string &file_path, buffer<unsigned char> &data)
 {
-	buffer_unsigned tmp_data{};
+	buffer<unsigned char> tmp_data{};
 	metadata meta{0};
 	read_raw_data(file_path, tmp_data, meta);
 	if (palette_found == true)
 	{
-		buffer_unsigned dest_palette{};
+		buffer<unsigned char> dest_palette{};
 		apply_palette(tmp_data, dest_palette, meta);
 		tmp_data = dest_palette;
 	}

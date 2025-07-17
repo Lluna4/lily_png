@@ -12,4 +12,4 @@ struct metadata
 	char interface;
 };
 
-metadata parse_metadata(buffer &data);
+metadata parse_metadata(buffer<char> &data);
