@@ -1,13 +1,13 @@
 #include "lily_png.h"
 
-std::vector<color> palette;
+std::vector<lily_png::color> palette;
 bool palette_found = false;
 
-static void read_raw_data(const std::string &file_path, buffer<unsigned char> &data, metadata &meta)
+static void read_raw_data(const std::string &file_path, file_reader::buffer<unsigned char> &data, lily_png::metadata &meta)
 {
 	std::println("Zlib version is {}", zlibVersion());
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
-	file_reader reader(file_path);
+	file_reader::file_reader reader(file_path);
 	char file_magic[9] = {0};
 	reader.read_buffer(file_magic, 8);
 	if (memcmp(magic, file_magic, 8) != 0)
@@ -15,13 +15,13 @@ static void read_raw_data(const std::string &file_path, buffer<unsigned char> &d
 		std::println("File is not a png!");
 		return ;
 	}
-	buffer<unsigned char> raw_dat{};
+	file_reader::buffer<unsigned char> raw_dat{};
 	while (true)
 	{
-		std::tuple<unsigned int, buffer<char>> chunk_header;
+		std::tuple<unsigned int, file_reader::buffer<char>> chunk_header;
 		std::get<1>(chunk_header).size = 4;
 		auto ret = reader.read_from_tuple(chunk_header);
-		if (ret.second == READ_FILE_ENDED || ret.second == READ_INCOMPLETE)
+		if (ret.second == file_reader::READ_FILE_ENDED || ret.second == file_reader::READ_INCOMPLETE)
 		{
 			std::println("Chunk incomplete!");
 			return ;
@@ -29,12 +29,12 @@ static void read_raw_data(const std::string &file_path, buffer<unsigned char> &d
 		unsigned int size = std::get<0>(chunk_header);
 		//std::println("Chunk type {} Size {}", std::get<1>(chunk_header).data, std::get<0>(chunk_header));
 
-		buffer<unsigned char> raw_data{};
+		file_reader::buffer<unsigned char> raw_data{};
 		raw_data.size = std::get<0>(chunk_header);
-		std::tuple<buffer<char>, unsigned> dat;
+		std::tuple<file_reader::buffer<char>, unsigned> dat;
 		std::get<0>(dat).size = std::get<0>(chunk_header);
 		ret = reader.read_from_tuple(dat);
-		if (ret.second == READ_FILE_ENDED || ret.second == READ_INCOMPLETE)
+		if (ret.second == file_reader::READ_FILE_ENDED || ret.second == file_reader::READ_INCOMPLETE)
 		{
 			std::println("Chunk incomplete!");
 			return ;
@@ -51,7 +51,7 @@ static void read_raw_data(const std::string &file_path, buffer<unsigned char> &d
 		}
 		else if (strncmp(std::get<1>(chunk_header).data, "IHDR", 4) == 0)
 		{
-			meta = parse_metadata(std::get<0>(dat));
+			meta = lily_png::parse_metadata(std::get<0>(dat));
 		}
 		else if (strncmp(std::get<1>(chunk_header).data, "PLTE", 4) == 0)
 		{
@@ -63,7 +63,7 @@ static void read_raw_data(const std::string &file_path, buffer<unsigned char> &d
 			}
 			for (int i = 0; i < size; i += 3)
 			{
-				color tmp_color;
+				lily_png::color tmp_color;
 				tmp_color.r = std::get<0>(dat).data[i];
 				tmp_color.g = std::get<0>(dat).data[i + 1];
 				tmp_color.b = std::get<0>(dat).data[i + 2];
@@ -85,7 +85,7 @@ static void read_raw_data(const std::string &file_path, buffer<unsigned char> &d
 }
 
 
-static void apply_palette_scanline(unsigned char *scanline, unsigned char *dest, metadata &meta)
+static void apply_palette_scanline(unsigned char *scanline, unsigned char *dest, lily_png::metadata &meta)
 {
 	size_t pixel_size = get_pixel_bit_size(meta);
 	size_t pixel_size_bytes = (pixel_size + 7)/8;
@@ -93,18 +93,18 @@ static void apply_palette_scanline(unsigned char *scanline, unsigned char *dest,
 	unsigned long dest_index = 0;
 	for (int i = 0; i < scanline_size; i++)
 	{
-		color tmp_color = palette[scanline[i]];
+		lily_png::color tmp_color = palette[scanline[i]];
 		dest[dest_index] = tmp_color.r;
 		dest[dest_index++] = tmp_color.g;
 		dest[dest_index++] = tmp_color.b;
 	}
 }
 
-static void apply_palette(buffer<unsigned char> &data, buffer<unsigned char> &dest, metadata &meta)
+static void apply_palette(file_reader::buffer<unsigned char> &data, file_reader::buffer<unsigned char> &dest, lily_png::metadata &meta)
 {
 	unsigned long index = 0;
 	unsigned long index_dest = 0;
-	size_t pixel_size = get_pixel_bit_size(meta);
+	size_t pixel_size = lily_png::get_pixel_bit_size(meta);
 	size_t pixel_size_bytes = (pixel_size + 7)/8;
 	size_t scanline_size = (meta.width * pixel_size + 7)/8;
 	unsigned long scanlines = 0;
@@ -120,14 +120,14 @@ static void apply_palette(buffer<unsigned char> &data, buffer<unsigned char> &de
 	}
 }
 
-void read_png(const std::string &file_path, buffer<unsigned char> &data)
+void lily_png::read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data)
 {
-	buffer<unsigned char> tmp_data{};
+	file_reader::buffer<unsigned char> tmp_data{};
 	metadata meta{0};
 	read_raw_data(file_path, tmp_data, meta);
 	if (palette_found == true)
 	{
-		buffer<unsigned char> dest_palette{};
+		file_reader::buffer<unsigned char> dest_palette{};
 		apply_palette(tmp_data, dest_palette, meta);
 		tmp_data = dest_palette;
 	}

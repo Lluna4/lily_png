@@ -1,15 +1,18 @@
 #pragma once
 #include "../file_reader/src/file_read.h"
 
-struct metadata
+namespace lily_png
 {
-	unsigned int width;
-	unsigned int height;
-	char bit_depth;
-	char color_type;
-	char compression;
-	char filter;
-	char interface;
-};
+	struct metadata
+	{
+		unsigned int width;
+		unsigned int height;
+		char bit_depth;
+		char color_type;
+		char compression;
+		char filter;
+		char interface;
+	};
 
-metadata parse_metadata(buffer<char> &data);
+	metadata parse_metadata(file_reader::buffer<char> &data);
+}

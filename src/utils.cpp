@@ -1,7 +1,7 @@
 
 #include "utils.h"
 
-size_t get_pixel_bit_size(const metadata &meta)
+size_t lily_png::get_pixel_bit_size(const metadata &meta)
 {
 	size_t ret = 0;
 	switch (meta.color_type)
@@ -52,7 +52,7 @@ size_t get_pixel_bit_size(const metadata &meta)
 	return ret;
 }
 
-size_t get_uncompressed_size(const metadata meta)
+size_t lily_png::get_uncompressed_size(const metadata meta)
 {
 	size_t ret = (meta.width * get_pixel_bit_size(meta) + 7)/8; //ceil() but for bytes
 	ret = (ret + 1) * meta.height;
@@ -60,7 +60,7 @@ size_t get_uncompressed_size(const metadata meta)
 	return ret;
 }
 
-int paeth_predict(int a, int b, int c)
+int lily_png::paeth_predict(int a, int b, int c)
 {
 	int pred = a+b-c;
 	int pred1 = abs(pred - a);

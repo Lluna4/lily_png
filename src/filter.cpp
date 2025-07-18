@@ -1,6 +1,6 @@
 #include "filter.h"
 
-void filter_scanline(unsigned char *scanline, unsigned char *previous_scanline, unsigned char *dest, metadata &meta, unsigned char filter_type)
+void lily_png::filter_scanline(unsigned char *scanline, unsigned char *previous_scanline, unsigned char *dest, metadata &meta, unsigned char filter_type)
 {
 	size_t pixel_size = get_pixel_bit_size(meta);
 	size_t pixel_size_bytes = (pixel_size + 7)/8;
@@ -43,7 +43,7 @@ void filter_scanline(unsigned char *scanline, unsigned char *previous_scanline, 
 	}
 }
 
-void filter(buffer<unsigned char> &data, buffer<unsigned char> &dest ,metadata &meta)
+void lily_png::filter(file_reader::buffer<unsigned char> &data, file_reader::buffer<unsigned char> &dest ,metadata &meta)
 {
 	unsigned long index = 0;
 	unsigned long index_dest = 0;

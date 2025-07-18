@@ -1,11 +1,10 @@
 #include "metadata.h"
 
-
-metadata parse_metadata(buffer<char> &data)
+lily_png::metadata lily_png::parse_metadata(file_reader::buffer<char> &data)
 {
 	std::tuple<unsigned int, unsigned int, char, char, char, char, char> meta;
 	constexpr std::size_t size = std::tuple_size_v<decltype(meta)>;
-	parsing_buffer par_buf(data);
+	file_reader::parsing_buffer par_buf(data);
 	par_buf.point = par_buf.buf.data;
 	par_buf.consumed_size = 0;
 	read_comp(size, par_buf, meta);
