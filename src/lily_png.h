@@ -9,7 +9,7 @@
 
 namespace lily_png
 {
-	struct color
+	struct color_rgb
 	{
 		unsigned char r = 0;
 		unsigned char g = 0;
@@ -17,5 +17,5 @@ namespace lily_png
 	};
 
 
-	void read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data);
+	metadata read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data);
 }

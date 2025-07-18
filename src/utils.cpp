@@ -6,7 +6,7 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 	size_t ret = 0;
 	switch (meta.color_type)
 	{
-		case 0:
+		case static_cast<int>(color::grayscale):
 			if (meta.bit_depth == 1 || meta.bit_depth == 2 || meta.bit_depth == 4 || meta.bit_depth == 8 || meta.bit_depth == 16)
 			{
 				ret = meta.bit_depth;
@@ -14,7 +14,7 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 			else
 				throw std::runtime_error("Invalid bit depht");
 			break;
-		case 2:
+		case static_cast<int>(color::rgb):
 			if (meta.bit_depth == 8 || meta.bit_depth == 16)
 			{
 				ret = meta.bit_depth * 3;
@@ -22,7 +22,7 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 			else
 				throw std::runtime_error("Invalid bit depht");
 			break;
-		case 3:
+		case static_cast<int>(color::indexed):
 			if (meta.bit_depth == 1 || meta.bit_depth == 2 || meta.bit_depth == 4 || meta.bit_depth == 8)
 			{
 				ret = meta.bit_depth;
@@ -30,7 +30,7 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 			else
 				throw std::runtime_error("Invalid bit depht");
 			break;
-		case 4:
+		case static_cast<int>(color::grayscale_alpha):
 			if (meta.bit_depth == 8 || meta.bit_depth == 16)
 			{
 				ret = meta.bit_depth * 2;
@@ -38,7 +38,7 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 			else
 				throw std::runtime_error("Invalid bit depht");
 			break;
-		case 6:
+		case static_cast<int>(color::rgba):
 			if (meta.bit_depth == 8 || meta.bit_depth == 16)
 			{
 				ret = meta.bit_depth * 4;
@@ -60,12 +60,12 @@ size_t lily_png::get_uncompressed_size(const metadata meta)
 	return ret;
 }
 
-int lily_png::paeth_predict(int a, int b, int c)
+int lily_png::paeth_predict(const int a, const int b, const int c)
 {
-	int pred = a+b-c;
-	int pred1 = abs(pred - a);
-	int pred2 = abs(pred - b);
-	int pred3 = abs(pred - c);
+	const int pred = a+b-c;
+	const int pred1 = abs(pred - a);
+	const int pred2 = abs(pred - b);
+	const int pred3 = abs(pred - c);
 	if (pred1 <= pred2 && pred1 <= pred3)
 		return a;
 	if (pred2 <= pred3)

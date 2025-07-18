@@ -3,6 +3,14 @@
 
 namespace lily_png
 {
+	enum class color
+	{
+		grayscale = 0,
+		rgb = 2,
+		indexed = 3,
+		grayscale_alpha = 4,
+		rgba = 6
+	};
 	struct metadata
 	{
 		unsigned int width;

@@ -13,6 +13,8 @@ add_library(lily_png STATIC src/lily_png.cpp
         src/utils.cpp
         src/utils.h
         src/filter.cpp
-        src/filter.h)
+        src/filter.h
+        src/convert.cpp
+        src/convert.h)
 target_link_libraries(lily_png PRIVATE file_read ZLIB::ZLIB)
 

@@ -1,6 +1,6 @@
 #include "lily_png.h"
 
-std::vector<lily_png::color> palette;
+std::vector<lily_png::color_rgb> palette;
 bool palette_found = false;
 
 static void read_raw_data(const std::string &file_path, file_reader::buffer<unsigned char> &data, lily_png::metadata &meta)
@@ -63,7 +63,7 @@ static void read_raw_data(const std::string &file_path, file_reader::buffer<unsi
 			}
 			for (int i = 0; i < size; i += 3)
 			{
-				lily_png::color tmp_color;
+				lily_png::color_rgb tmp_color;
 				tmp_color.r = std::get<0>(dat).data[i];
 				tmp_color.g = std::get<0>(dat).data[i + 1];
 				tmp_color.b = std::get<0>(dat).data[i + 2];
@@ -93,7 +93,7 @@ static void apply_palette_scanline(unsigned char *scanline, unsigned char *dest,
 	unsigned long dest_index = 0;
 	for (int i = 0; i < scanline_size; i++)
 	{
-		lily_png::color tmp_color = palette[scanline[i]];
+		lily_png::color_rgb tmp_color = palette[scanline[i]];
 		dest[dest_index] = tmp_color.r;
 		dest[dest_index++] = tmp_color.g;
 		dest[dest_index++] = tmp_color.b;
@@ -120,7 +120,7 @@ static void apply_palette(file_reader::buffer<unsigned char> &data, file_reader:
 	}
 }
 
-void lily_png::read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data)
+lily_png::metadata lily_png::read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data)
 {
 	file_reader::buffer<unsigned char> tmp_data{};
 	metadata meta{0};
@@ -132,4 +132,5 @@ void lily_png::read_png(const std::string &file_path, file_reader::buffer<unsign
 		tmp_data = dest_palette;
 	}
 	filter(tmp_data, data, meta);
+	return meta;
 }
