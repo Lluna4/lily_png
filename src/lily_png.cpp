@@ -9,7 +9,13 @@ static void read_raw_data(const std::string &file_path, file_reader::buffer<unsi
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
 	file_reader::file_reader reader(file_path);
 	char file_magic[9] = {0};
-	reader.read_buffer(file_magic, 8);
+	auto res = reader.read_buffer(file_magic, 8).or_else([](const file_reader::RESULT &res)
+	{
+		std::println("Reading failed!");
+		return std::expected<size_t, file_reader::RESULT>{0};
+	});
+	if (res.value() == 0)
+		throw std::runtime_error("Read failed");
 	if (memcmp(magic, file_magic, 8) != 0)
 	{
 		std::println("File is not a png!");
@@ -21,7 +27,7 @@ static void read_raw_data(const std::string &file_path, file_reader::buffer<unsi
 		std::tuple<unsigned int, file_reader::buffer<char>> chunk_header;
 		std::get<1>(chunk_header).size = 4;
 		auto ret = reader.read_from_tuple(chunk_header);
-		if (ret.second == file_reader::READ_FILE_ENDED || ret.second == file_reader::READ_INCOMPLETE)
+		if (!ret || ret.value() != 8)
 		{
 			std::println("Chunk incomplete!");
 			return ;
@@ -34,7 +40,7 @@ static void read_raw_data(const std::string &file_path, file_reader::buffer<unsi
 		std::tuple<file_reader::buffer<char>, unsigned> dat;
 		std::get<0>(dat).size = std::get<0>(chunk_header);
 		ret = reader.read_from_tuple(dat);
-		if (ret.second == file_reader::READ_FILE_ENDED || ret.second == file_reader::READ_INCOMPLETE)
+		if (!ret || ret.value() != raw_data.size + 4)
 		{
 			std::println("Chunk incomplete!");
 			return ;
