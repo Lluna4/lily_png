@@ -3,7 +3,7 @@
 std::vector<lily_png::color_rgb> palette;
 bool palette_found = false;
 
-static void read_raw_data(const std::string &file_path, file_reader::buffer<unsigned char> &data, lily_png::metadata &meta)
+static std::expected<bool, lily_png::png_error> read_raw_data(const std::string &file_path, file_reader::buffer<unsigned char> &data, lily_png::metadata &meta)
 {
 	std::println("Zlib version is {}", zlibVersion());
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
@@ -11,26 +11,30 @@ static void read_raw_data(const std::string &file_path, file_reader::buffer<unsi
 	char file_magic[9] = {0};
 	auto res = reader.read_buffer(file_magic, 8).or_else([](const file_reader::RESULT &res)
 	{
-		std::println("Reading failed!");
+		std::println("Reading magic failed!");
 		return std::expected<size_t, file_reader::RESULT>{0};
 	});
 	if (res.value() == 0)
-		throw std::runtime_error("Read failed");
+		return std::unexpected(lily_png::png_error::read_failed);
 	if (memcmp(magic, file_magic, 8) != 0)
 	{
 		std::println("File is not a png!");
-		return ;
+		return std::unexpected(lily_png::png_error::file_is_not_a_png);
 	}
 	file_reader::buffer<unsigned char> raw_dat{};
 	while (true)
 	{
 		std::tuple<unsigned int, file_reader::buffer<char>> chunk_header;
 		std::get<1>(chunk_header).size = 4;
-		auto ret = reader.read_from_tuple(chunk_header);
-		if (!ret || ret.value() != 8)
+		auto ret = reader.read_from_tuple(chunk_header).or_else([](const file_reader::RESULT &res)
+		{
+			std::println("Reading header failed!");
+			return std::expected<size_t, file_reader::RESULT>{0};
+		});
+		if (ret.value() != 8)
 		{
 			std::println("Chunk incomplete!");
-			return ;
+			return std::unexpected(lily_png::png_error::read_failed);
 		}
 		unsigned int size = std::get<0>(chunk_header);
 		//std::println("Chunk type {} Size {}", std::get<1>(chunk_header).data, std::get<0>(chunk_header));
@@ -39,11 +43,15 @@ static void read_raw_data(const std::string &file_path, file_reader::buffer<unsi
 		raw_data.size = std::get<0>(chunk_header);
 		std::tuple<file_reader::buffer<char>, unsigned> dat;
 		std::get<0>(dat).size = std::get<0>(chunk_header);
-		ret = reader.read_from_tuple(dat);
-		if (!ret || ret.value() != raw_data.size + 4)
+		ret = reader.read_from_tuple(dat).or_else([](const file_reader::RESULT &res)
+		{
+			std::println("Reading data failed!");
+			return std::expected<size_t, file_reader::RESULT>{0};
+		});
+		if (ret.value() != raw_data.size + 4)
 		{
 			std::println("Chunk incomplete!");
-			return ;
+			return std::unexpected(lily_png::png_error::read_failed);
 		}
 		unsigned long crc = crc32(0, reinterpret_cast<unsigned char *>(std::get<1>(chunk_header).data), 4);
 		crc = crc32(crc, reinterpret_cast<unsigned char *>(std::get<0>(dat).data), std::get<0>(chunk_header));
@@ -65,7 +73,7 @@ static void read_raw_data(const std::string &file_path, file_reader::buffer<unsi
 			if (size%3 != 0)
 			{
 				std::println("Palette size is not divisible by 3");
-				return ;
+				return std::unexpected(lily_png::png_error::read_failed);
 			}
 			for (int i = 0; i < size; i += 3)
 			{
@@ -88,6 +96,7 @@ static void read_raw_data(const std::string &file_path, file_reader::buffer<unsi
 		std::println("Uncompress failed {}", r);
 		throw std::runtime_error("Uncompress fail");
 	}
+	return true;
 }
 
 
@@ -126,11 +135,15 @@ static void apply_palette(file_reader::buffer<unsigned char> &data, file_reader:
 	}
 }
 
-lily_png::metadata lily_png::read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data)
+std::expected<lily_png::metadata, lily_png::png_error> lily_png::read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data)
 {
 	file_reader::buffer<unsigned char> tmp_data{};
 	metadata meta{0};
-	read_raw_data(file_path, tmp_data, meta);
+	auto ret = read_raw_data(file_path, tmp_data, meta);
+	if (!ret)
+	{
+		return std::unexpected(ret.error());
+	}
 	if (palette_found == true)
 	{
 		file_reader::buffer<unsigned char> dest_palette{};

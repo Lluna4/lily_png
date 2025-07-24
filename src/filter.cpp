@@ -43,7 +43,7 @@ void lily_png::filter_scanline(unsigned char *scanline, unsigned char *previous_
 	}
 }
 
-void lily_png::filter(file_reader::buffer<unsigned char> &data, file_reader::buffer<unsigned char> &dest ,metadata &meta)
+void lily_png::filter(file_reader::buffer<unsigned char> &data, file_reader::buffer<unsigned char> &dest , metadata &meta)
 {
 	unsigned long index = 0;
 	unsigned long index_dest = 0;
