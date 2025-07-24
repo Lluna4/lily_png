@@ -7,7 +7,10 @@ static std::expected<bool, lily_png::png_error> read_raw_data(const std::string 
 {
 	std::println("Zlib version is {}", zlibVersion());
 	unsigned char magic[9] = {137, 80, 78, 71, 13, 10, 26, 10};
-	file_reader::file_reader reader(file_path);
+	file_reader::file_reader reader{};
+	auto result = reader.open_file(file_path);
+	if (!result)
+		return std::unexpected(lily_png::png_error::file_doesnt_exist);
 	char file_magic[9] = {0};
 	auto res = reader.read_buffer(file_magic, 8).or_else([](const file_reader::RESULT &res)
 	{
