@@ -1,6 +1,6 @@
 #include "filter.h"
 
-void lily_png::filter_scanline(unsigned char *scanline, unsigned char *previous_scanline, unsigned char *dest, metadata &meta, unsigned char filter_type)
+std::expected<bool, lily_png::png_error> lily_png::filter_scanline(unsigned char *scanline, unsigned char *previous_scanline, unsigned char *dest, metadata &meta, unsigned char filter_type)
 {
 	size_t pixel_size = get_pixel_bit_size(meta);
 	size_t pixel_size_bytes = (pixel_size + 7)/8;
@@ -37,13 +37,13 @@ void lily_png::filter_scanline(unsigned char *scanline, unsigned char *previous_
 				dest[i] = scanline[i] + paeth_predict(a, b, c);
 				break;
 			default:
-				std::println("Non standard filter");
-				break;
+				return std::unexpected(png_error::non_standard_filter);
 		}
 	}
+	return true;
 }
 
-void lily_png::filter(file_reader::buffer<unsigned char> &data, file_reader::buffer<unsigned char> &dest , metadata &meta)
+std::expected<bool, lily_png::png_error> lily_png::filter(file_reader::buffer<unsigned char> &data, file_reader::buffer<unsigned char> &dest , metadata &meta)
 {
 	unsigned long index = 0;
 	unsigned long index_dest = 0;
@@ -57,7 +57,9 @@ void lily_png::filter(file_reader::buffer<unsigned char> &data, file_reader::buf
 	{
 		unsigned char filter = data.data[index];
 		std::println("Filter {}", filter);
-		filter_scanline(&data.data[index + 1], previous_scanline, &dest.data[index_dest], meta, filter);
+		auto res = filter_scanline(&data.data[index + 1], previous_scanline, &dest.data[index_dest], meta, filter);
+		if (!res)
+			return std::unexpected(res.error());
 		previous_scanline = &dest.data[index_dest];
 		index += scanline_size + 1;
 		index_dest += scanline_size;

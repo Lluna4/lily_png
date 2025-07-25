@@ -153,6 +153,8 @@ std::expected<lily_png::metadata, lily_png::png_error> lily_png::read_png(const 
 		apply_palette(tmp_data, dest_palette, meta);
 		tmp_data = dest_palette;
 	}
-	filter(tmp_data, data, meta);
+	auto res = filter(tmp_data, data, meta);
+	if (!res)
+		return std::unexpected(res.error());
 	return meta;
 }

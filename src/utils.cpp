@@ -4,7 +4,6 @@
 size_t lily_png::get_pixel_bit_size(const metadata &meta)
 {
 	size_t ret = 0;
-	std::println("Bit depth {} color {}", (int)meta.bit_depth, (int)meta.color_type);
 	switch (meta.color_type)
 	{
 		case static_cast<int>(color::grayscale):
@@ -55,7 +54,6 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 
 size_t lily_png::get_uncompressed_size(const metadata &meta)
 {
-	std::println("metadata{{ width: {}, height: {}, bit_depth: {}, color_type: {}, compression: {}, filter: {}, interface: {} }}", meta.width, meta.height, (int)meta.bit_depth, (int)meta.color_type, (int)meta.compression, (int)meta.filter, (int)meta.interface);
 	size_t ret = (meta.width * get_pixel_bit_size(meta) + 7)/8; //ceil() but for bytes
 	ret = (ret + 1) * meta.height;
 	std::println("Uncompressed size {}", ret);
