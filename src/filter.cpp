@@ -65,4 +65,5 @@ std::expected<bool, lily_png::png_error> lily_png::filter(file_reader::buffer<un
 		index_dest += scanline_size;
 		scanlines++;
 	}
+	return true;
 }
