@@ -91,7 +91,10 @@ static std::expected<bool, lily_png::png_error> read_raw_data(const std::string 
 			break;
 	}
 
-	data.allocate(get_uncompressed_size(meta));
+	auto uncompress_ret = get_uncompressed_size(meta);
+	if (!uncompress_ret)
+		return std::unexpected(uncompress_ret.error());
+	data.allocate(uncompress_ret.value());
 	size_t prev_allocated = data.allocated;
 	int r = uncompress(data.data, &prev_allocated, raw_dat.data, raw_dat.allocated);
 	if (r != Z_OK)
@@ -103,9 +106,12 @@ static std::expected<bool, lily_png::png_error> read_raw_data(const std::string 
 }
 
 
-static void apply_palette_scanline(unsigned char *scanline, unsigned char *dest, lily_png::metadata &meta)
+static std::expected<bool, lily_png::png_error> apply_palette_scanline(unsigned char *scanline, unsigned char *dest, lily_png::metadata &meta)
 {
-	size_t pixel_size = get_pixel_bit_size(meta);
+	auto pixel_size_ret = get_pixel_bit_size(meta);
+	if (!pixel_size_ret)
+		return std::unexpected(pixel_size_ret.error());
+	size_t pixel_size = pixel_size_ret.value();
 	size_t pixel_size_bytes = (pixel_size + 7)/8;
 	size_t scanline_size = (meta.width * pixel_size + 7)/8;
 	unsigned long dest_index = 0;
@@ -116,26 +122,36 @@ static void apply_palette_scanline(unsigned char *scanline, unsigned char *dest,
 		dest[dest_index++] = tmp_color.g;
 		dest[dest_index++] = tmp_color.b;
 	}
+	return true;
 }
 
-static void apply_palette(file_reader::buffer<unsigned char> &data, file_reader::buffer<unsigned char> &dest, lily_png::metadata &meta)
+static std::expected<bool, lily_png::png_error> apply_palette(file_reader::buffer<unsigned char> &data, file_reader::buffer<unsigned char> &dest, lily_png::metadata &meta)
 {
 	unsigned long index = 0;
 	unsigned long index_dest = 0;
-	size_t pixel_size = lily_png::get_pixel_bit_size(meta);
+	auto pixel_size_ret = get_pixel_bit_size(meta);
+	if (!pixel_size_ret)
+		return std::unexpected(pixel_size_ret.error());
+	size_t pixel_size = pixel_size_ret.value();
 	size_t pixel_size_bytes = (pixel_size + 7)/8;
 	size_t scanline_size = (meta.width * pixel_size + 7)/8;
 	unsigned long scanlines = 0;
-	dest.allocate(get_uncompressed_size(meta) * 3);
+	auto uncompress_ret = get_uncompressed_size(meta);
+	if (!uncompress_ret)
+		return std::unexpected(uncompress_ret.error());
+	dest.allocate(uncompress_ret.value() * 3);
 	while (scanlines < meta.height)
 	{
 		unsigned char filter = data.data[index];
 		std::println("Filter {}", filter);
-		apply_palette_scanline(&data.data[index + 1], &dest.data[index_dest], meta);
+		auto ret = apply_palette_scanline(&data.data[index + 1], &dest.data[index_dest], meta);
+		if (!ret)
+			return std::unexpected(ret.error());
 		index += scanline_size + 1;
 		index_dest += scanline_size;
 		scanlines++;
 	}
+	return true;
 }
 
 std::expected<lily_png::metadata, lily_png::png_error> lily_png::read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data)
@@ -150,7 +166,9 @@ std::expected<lily_png::metadata, lily_png::png_error> lily_png::read_png(const 
 	if (palette_found == true)
 	{
 		file_reader::buffer<unsigned char> dest_palette{};
-		apply_palette(tmp_data, dest_palette, meta);
+		auto apply_ret = apply_palette(tmp_data, dest_palette, meta);
+		if (!apply_ret)
+			return std::unexpected(apply_ret.error());
 		tmp_data = dest_palette;
 	}
 	auto res = filter(tmp_data, data, meta);

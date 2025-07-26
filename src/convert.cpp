@@ -6,8 +6,10 @@ std::expected<bool, lily_png::CONVERT_ERROR> lily_png::convert_to_R32G32B32A32(f
         return std::unexpected(CONVERT_ERROR::color_type_mismatch);
     if (!(meta.bit_depth == 8 || meta.bit_depth == 16))
         return std::unexpected(CONVERT_ERROR::non_standard_bit_depth);
-
-    size_t size = get_uncompressed_size(meta);
+    auto uncompress_ret = get_uncompressed_size(meta);
+    if (!uncompress_ret)
+        return std::unexpected(CONVERT_ERROR::non_standard_bit_depth);
+    size_t size = uncompress_ret.value();
     size_t dest_size = 0;
     if (meta.bit_depth == 8)
     {

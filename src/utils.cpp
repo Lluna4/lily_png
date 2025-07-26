@@ -1,7 +1,7 @@
 
 #include "utils.h"
 
-size_t lily_png::get_pixel_bit_size(const metadata &meta)
+std::expected<size_t, lily_png::png_error> lily_png::get_pixel_bit_size(const metadata &meta)
 {
 	size_t ret = 0;
 	switch (meta.color_type)
@@ -20,7 +20,7 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 				ret = meta.bit_depth * 3;
 			}
 			else
-				throw std::runtime_error("Invalid bit depht");
+				return std::unexpected(png_error::invalid_bit_depth);
 			break;
 		case static_cast<int>(color::indexed):
 			if (meta.bit_depth == 1 || meta.bit_depth == 2 || meta.bit_depth == 4 || meta.bit_depth == 8)
@@ -28,7 +28,7 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 				ret = meta.bit_depth;
 			}
 			else
-				throw std::runtime_error("Invalid bit depht");
+				return std::unexpected(png_error::invalid_bit_depth);
 			break;
 		case static_cast<int>(color::grayscale_alpha):
 			if (meta.bit_depth == 8 || meta.bit_depth == 16)
@@ -36,7 +36,7 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 				ret = meta.bit_depth * 2;
 			}
 			else
-				throw std::runtime_error("Invalid bit depht");
+				return std::unexpected(png_error::invalid_bit_depth);
 			break;
 		case static_cast<int>(color::rgba):
 			if (meta.bit_depth == 8 || meta.bit_depth == 16)
@@ -44,17 +44,20 @@ size_t lily_png::get_pixel_bit_size(const metadata &meta)
 				ret = meta.bit_depth * 4;
 			}
 			else
-				throw std::runtime_error("Invalid bit depht");
+				return std::unexpected(png_error::invalid_bit_depth);
 			break;
 		default:
-			throw std::runtime_error("Invalid color type");
+			return std::unexpected(png_error::invalid_color_type);
 	}
 	return ret;
 }
 
-size_t lily_png::get_uncompressed_size(const metadata &meta)
+std::expected<size_t, lily_png::png_error> lily_png::get_uncompressed_size(const metadata &meta)
 {
-	size_t ret = (meta.width * get_pixel_bit_size(meta) + 7)/8; //ceil() but for bytes
+	auto pixel_ret = get_pixel_bit_size(meta);
+	if (!pixel_ret)
+		return std::unexpected(pixel_ret.error());
+	size_t ret = (meta.width * pixel_ret.value() + 7)/8; //ceil() but for bytes
 	ret = (ret + 1) * meta.height;
 	std::println("Uncompressed size {}", ret);
 	return ret;

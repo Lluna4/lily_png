@@ -2,7 +2,10 @@
 
 std::expected<bool, lily_png::png_error> lily_png::filter_scanline(unsigned char *scanline, unsigned char *previous_scanline, unsigned char *dest, metadata &meta, unsigned char filter_type)
 {
-	size_t pixel_size = get_pixel_bit_size(meta);
+	auto pixel_size_ret = get_pixel_bit_size(meta);
+	if (!pixel_size_ret)
+		return std::unexpected(pixel_size_ret.error());
+	size_t pixel_size = pixel_size_ret.value();
 	size_t pixel_size_bytes = (pixel_size + 7)/8;
 	size_t scanline_size = (meta.width * pixel_size + 7)/8;
 	for (int i = 0; i < scanline_size; i++)
@@ -47,11 +50,17 @@ std::expected<bool, lily_png::png_error> lily_png::filter(file_reader::buffer<un
 {
 	unsigned long index = 0;
 	unsigned long index_dest = 0;
-	size_t pixel_size = get_pixel_bit_size(meta);
+	auto pixel_size_ret = get_pixel_bit_size(meta);
+	if (!pixel_size_ret)
+		return std::unexpected(pixel_size_ret.error());
+	size_t pixel_size = pixel_size_ret.value();
 	size_t pixel_size_bytes = (pixel_size + 7)/8;
 	size_t scanline_size = (meta.width * pixel_size + 7)/8;
 	unsigned long scanlines = 0;
-	dest.allocate(get_uncompressed_size(meta));
+	auto uncompress_ret = get_uncompressed_size(meta);
+	if (!uncompress_ret)
+		return std::unexpected(uncompress_ret.error());
+	dest.allocate(uncompress_ret.value());
 	unsigned char *previous_scanline = nullptr;
 	while (scanlines < meta.height)
 	{
