@@ -63,6 +63,37 @@ std::expected<size_t, lily_png::png_error> lily_png::get_uncompressed_size(const
 	return ret;
 }
 
+std::expected<size_t, lily_png::png_error> lily_png::resize_image(file_reader::buffer<unsigned char> &src,
+	file_reader::buffer<unsigned char> &dest, metadata &meta, metadata &new_meta)
+{
+	auto pixel_size_ret = get_pixel_bit_size(meta);
+	if (!pixel_size_ret)
+		return std::unexpected(pixel_size_ret.error());
+	size_t pixel_size = pixel_size_ret.value();
+	size_t pixel_size_bytes = (pixel_size + 7)/8;
+	int compressed_pixels_width = meta.width / new_meta.width;
+	int compressed_pixels_height = meta.height / new_meta.height;
+	auto uncompress_ret = get_uncompressed_size(new_meta);
+	if (!uncompress_ret)
+		return std::unexpected(uncompress_ret.error());
+	dest.allocate(uncompress_ret.value());
+
+	for (int y = 0; y < new_meta.height; y++)
+	{
+		for (int x = 0; x < new_meta.width; x++)
+		{
+			int src_x = static_cast<int>(x * compressed_pixels_width);
+			int src_y = static_cast<int>(y * compressed_pixels_height);
+
+			// Calculate the linear index for the source and destination buffers
+			size_t dest_index = (static_cast<size_t>(y) * new_meta.width + x) * pixel_size_bytes;
+			size_t src_index = (static_cast<size_t>(src_y) * meta.width + src_x) * pixel_size_bytes;
+			memcpy(&dest.data[dest_index], &src.data[src_index], pixel_size_bytes);
+		}
+	}
+	return uncompress_ret.value();
+}
+
 int lily_png::paeth_predict(const int a, const int b, const int c)
 {
 	const int pred = a+b-c;
@@ -74,4 +105,16 @@ int lily_png::paeth_predict(const int a, const int b, const int c)
 	if (pred2 <= pred3)
 		return b;
 	return c;
+}
+
+float lily_png::get_aspect_ratio(const metadata &meta)
+{
+	float aspect_ratio = 0.0f;
+
+	if (meta.width > meta.height)
+		aspect_ratio = (float)meta.width / (float)meta.height;
+	else
+		aspect_ratio = (float)meta.height / (float)meta.width;
+
+	return aspect_ratio;
 }

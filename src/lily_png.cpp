@@ -154,6 +154,23 @@ static std::expected<bool, lily_png::png_error> apply_palette(file_reader::buffe
 	return true;
 }
 
+std::expected<bool, lily_png::png_error> lily_png::apply_to_pixel(file_reader::buffer<unsigned char> &src, metadata &meta, std::function<void(unsigned char *, int, size_t)> func)
+{
+	auto uncompress_ret = get_uncompressed_size(meta);
+	if (!uncompress_ret)
+		return std::unexpected(png_error::invalid_bit_depth);
+	size_t size = uncompress_ret.value();
+	auto pixel_size_ret = get_pixel_bit_size(meta);
+	if (!pixel_size_ret)
+		return std::unexpected(pixel_size_ret.error());
+	size_t pixel_size = pixel_size_ret.value();
+	for (int i = 0; i < size; i += pixel_size)
+	{
+		func(&src.data[i], i, pixel_size);
+	}
+	return true;
+}
+
 std::expected<lily_png::metadata, lily_png::png_error> lily_png::read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data)
 {
 	file_reader::buffer<unsigned char> tmp_data{};

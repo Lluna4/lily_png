@@ -15,5 +15,7 @@ namespace lily_png
     };
     std::expected<size_t, png_error> get_pixel_bit_size(const metadata &meta);
     std::expected<size_t, png_error> get_uncompressed_size(const metadata &meta);
+    std::expected<size_t, png_error> resize_image(file_reader::buffer<unsigned char> &src, file_reader::buffer<unsigned char> &dest, metadata &meta, metadata &new_meta);
     int paeth_predict(const int a, const int b, const int c);
+    float get_aspect_ratio(const metadata &meta);
 }
