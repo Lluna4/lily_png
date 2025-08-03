@@ -181,6 +181,7 @@ std::expected<bool, lily_png::png_error> lily_png::read_png(const std::string &f
 	{
 		return std::unexpected(ret.error());
 	}
+	data.add_metadata(data.meta);
 	if (palette_found == true)
 	{
 		file_reader::buffer<unsigned char> dest_palette{};

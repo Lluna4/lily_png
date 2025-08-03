@@ -12,7 +12,7 @@ std::expected<size_t, lily_png::png_error> lily_png::get_pixel_bit_size(const me
 				ret = meta.bit_depth;
 			}
 			else
-				throw std::runtime_error("Invalid bit depht");
+				return std::unexpected(png_error::invalid_bit_depth);
 			break;
 		case static_cast<int>(color::rgb):
 			if (meta.bit_depth == 8 || meta.bit_depth == 16)
@@ -90,7 +90,7 @@ float lily_png::get_aspect_ratio(const metadata &meta)
 
 std::expected<size_t, lily_png::png_error> lily_png::image::resize_image(image &dest)
 {
-	size_t new_size = (dest.meta.width * pixel_size_bytes) * dest.meta.height;
+	size_t new_size = (dest.meta.width * dest.pixel_size_bytes) * dest.meta.height;
 	dest.buffer.allocate(new_size);
 
 	//this implementation is bad but its only a test
@@ -101,7 +101,7 @@ std::expected<size_t, lily_png::png_error> lily_png::image::resize_image(image &
 	{
 		for (int x = 0; x < dest.meta.width; x++)
 		{
-			*(dest[y, x]) = *(operator[](y * compressed_pixels_height, x * compressed_pixels_width));
+			memcpy(dest[y, x], operator[](y * compressed_pixels_height, x * compressed_pixels_width), pixel_size_bytes);
 		}
 	}
 	return new_size;
