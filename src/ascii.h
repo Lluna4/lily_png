@@ -7,5 +7,5 @@
 
 namespace lily_png
 {
-	void convert_to_ascii(file_reader::buffer<unsigned char> &src, file_reader::buffer<char> &dest, metadata &meta);
+	void convert_to_ascii(image &src, image &dest);
 }

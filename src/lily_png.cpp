@@ -1,5 +1,7 @@
 #include "lily_png.h"
 
+#include <limits.h>
+
 std::vector<lily_png::color_rgb> palette;
 bool palette_found = false;
 
@@ -171,11 +173,10 @@ std::expected<bool, lily_png::png_error> lily_png::apply_to_pixel(file_reader::b
 	return true;
 }
 
-std::expected<lily_png::metadata, lily_png::png_error> lily_png::read_png(const std::string &file_path, file_reader::buffer<unsigned char> &data)
+std::expected<bool, lily_png::png_error> lily_png::read_png(const std::string &file_path, image &data)
 {
 	file_reader::buffer<unsigned char> tmp_data{};
-	metadata meta{0};
-	auto ret = read_raw_data(file_path, tmp_data, meta);
+	auto ret = read_raw_data(file_path, tmp_data, data.meta);
 	if (!ret)
 	{
 		return std::unexpected(ret.error());
@@ -183,13 +184,13 @@ std::expected<lily_png::metadata, lily_png::png_error> lily_png::read_png(const 
 	if (palette_found == true)
 	{
 		file_reader::buffer<unsigned char> dest_palette{};
-		auto apply_ret = apply_palette(tmp_data, dest_palette, meta);
+		auto apply_ret = apply_palette(tmp_data, dest_palette, data.meta);
 		if (!apply_ret)
 			return std::unexpected(apply_ret.error());
 		tmp_data = dest_palette;
 	}
-	auto res = filter(tmp_data, data, meta);
+	auto res = filter(tmp_data, data.buffer, data.meta);
 	if (!res)
 		return std::unexpected(res.error());
-	return meta;
+	return true;
 }
