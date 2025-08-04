@@ -5,11 +5,14 @@
 #include "ascii.h"
 
 #include "convert.h"
+#include <math.h>
 
 void lily_png::convert_to_ascii(image &src, file_reader::buffer<char> &dest)
 {
+	std::vector<char> chars = {':', '-', '=', '+', '*', '#', '%', '@'};
+	size_t size_step = 255/chars.size();
 	image intermediate_img(src.meta);
-	intermediate_img.meta.width = 40;
+	intermediate_img.meta.width = 80;
 	intermediate_img.meta.height = 40;
 
 	auto ret = src.resize_image(intermediate_img);
@@ -19,7 +22,7 @@ void lily_png::convert_to_ascii(image &src, file_reader::buffer<char> &dest)
 		return ;
 	}
 	size_t resized_size = ret.value();
-	size_t reference_size = strlen("\033[38;2;255;255;255ma\033[0m ");
+	size_t reference_size = strlen("\033[38;2;255;255;255ma\033[0m");
 	dest.allocate(resized_size + (resized_size * intermediate_img.meta.width * intermediate_img.meta.height));
 	size_t dest_index = 0;
 	size_t byte_size = (intermediate_img.meta.bit_depth + 7)/8;
@@ -33,7 +36,13 @@ void lily_png::convert_to_ascii(image &src, file_reader::buffer<char> &dest)
 			tmp.r = pxl[0];
 			tmp.g = pxl[byte_size];
 			tmp.b = pxl[byte_size * 2];
-			std::string format = std::format("\033[38;2;{};{};{}ma\033[0m ", tmp.r, tmp.g, tmp.b);
+			double luminance = 0.299 * tmp.r + 0.587 * tmp.g + 0.114 * tmp.b;
+			double normalizedLuminance = luminance / 255.0;
+			int index = static_cast<int>(round(normalizedLuminance * (chars.size() - 1)));
+
+			// Ensure the index is within bounds (should be, but good practice)
+			index = std::max(0, std::min(index, static_cast<int>(chars.size() - 1)));
+			std::string format = std::format("\033[38;2;{};{};{}m{}\033[0m", tmp.r, tmp.g, tmp.b, chars[index]);
 			memcpy(&dest.data[dest_index], format.c_str(), format.size());
 			dest_index += format.size();
 			lines++;

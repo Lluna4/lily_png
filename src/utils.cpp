@@ -1,6 +1,8 @@
 
 #include "utils.h"
 
+#include "convert.h"
+
 std::expected<size_t, lily_png::png_error> lily_png::get_pixel_bit_size(const metadata &meta)
 {
 	size_t ret = 0;
@@ -96,12 +98,31 @@ std::expected<size_t, lily_png::png_error> lily_png::image::resize_image(image &
 	//this implementation is bad but its only a test
 	int compressed_pixels_width = meta.width / dest.meta.width;
 	int compressed_pixels_height = meta.height / dest.meta.height;
-
+	size_t byte_size = (meta.bit_depth + 7)/8;
 	for (int y = 0; y < dest.meta.height; y++)
 	{
 		for (int x = 0; x < dest.meta.width; x++)
 		{
-			memcpy(dest[y, x], operator[](y * compressed_pixels_height, x * compressed_pixels_width), pixel_size_bytes);
+			unsigned char *res_pxl = operator[](y * compressed_pixels_height, x * compressed_pixels_width);
+			if (x > 0)
+			{
+				unsigned char *pxl = operator[](y * compressed_pixels_height, x * compressed_pixels_width);
+				color_rgb tmp1{};
+				tmp1.r = pxl[0];
+				tmp1.g = pxl[byte_size];
+				tmp1.b = pxl[byte_size * 2];
+				unsigned char *pxl2 = operator[](y * compressed_pixels_height, x * compressed_pixels_width - 1);
+				color_rgb tmp2{};
+				tmp2.r = pxl2[0];
+				tmp2.g = pxl2[byte_size];
+				tmp2.b = pxl2[byte_size * 2];
+				std::vector<unsigned char> res_col {static_cast<unsigned char>((tmp1.r + tmp2.r)/2),
+				static_cast<unsigned char>((tmp1.g + tmp2.g)/2),
+				static_cast<unsigned char>((tmp1.b + tmp2.b)/2)};
+				memcpy(dest[y, x], res_col.data(), pixel_size_bytes);
+			}
+			else
+				memcpy(dest[y, x], res_pxl, pixel_size_bytes);
 		}
 	}
 	return new_size;
