@@ -1,7 +1,3 @@
-//
-// Created by Luna on 27/7/25.
-//
-
 #include "ascii.h"
 
 #include "convert.h"
@@ -9,11 +5,10 @@
 
 void lily_png::convert_to_ascii(image &src, file_reader::buffer<char> &dest)
 {
-	std::vector<char> chars = {':', '-', '=', '+', '*', '#', '%', '@'};
-	size_t size_step = 255/chars.size();
+	std::string chars = " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESwqkP6h9d4VpOGbUAKXHm8RD#$Bg0MNWQ%&@";
 	image intermediate_img(src.meta);
-	intermediate_img.meta.width = 80;
-	intermediate_img.meta.height = 40;
+	intermediate_img.meta.width = 110;
+	intermediate_img.meta.height = 50;
 
 	auto ret = src.resize_image(intermediate_img);
 	if (!ret)
@@ -37,11 +32,9 @@ void lily_png::convert_to_ascii(image &src, file_reader::buffer<char> &dest)
 			tmp.g = pxl[byte_size];
 			tmp.b = pxl[byte_size * 2];
 			double luminance = 0.299 * tmp.r + 0.587 * tmp.g + 0.114 * tmp.b;
-			double normalizedLuminance = luminance / 255.0;
-			int index = static_cast<int>(round(normalizedLuminance * (chars.size() - 1)));
+			double luminance_normalized = luminance/255.0f;
+			int index = static_cast<int>(luminance_normalized * (chars.length() - 1));
 
-			// Ensure the index is within bounds (should be, but good practice)
-			index = std::max(0, std::min(index, static_cast<int>(chars.size() - 1)));
 			std::string format = std::format("\033[38;2;{};{};{}m{}\033[0m", tmp.r, tmp.g, tmp.b, chars[index]);
 			memcpy(&dest.data[dest_index], format.c_str(), format.size());
 			dest_index += format.size();
