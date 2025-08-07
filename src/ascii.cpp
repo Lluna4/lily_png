@@ -2,13 +2,26 @@
 
 #include "convert.h"
 #include <math.h>
+#include <sys/ioctl.h>
+#include <stdio.h>
+#include <unistd.h>
 
 void lily_png::convert_to_ascii(image &src, file_reader::buffer<char> &dest)
 {
 	std::string chars = " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESwqkP6h9d4VpOGbUAKXHm8RD#$Bg0MNWQ%&@";
 	image intermediate_img(src.meta);
-	intermediate_img.meta.width = 110;
-	intermediate_img.meta.height = 50;
+	winsize terminal_size;
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &terminal_size);
+	intermediate_img.meta.height = terminal_size.ws_row - 1;
+	std::println("{} {}", src.meta.height, src.meta.width);
+	float height_ratio = (float)src.meta.height/(float)src.meta.width;
+	intermediate_img.meta.width = (terminal_size.ws_row * height_ratio) * 2.25f;
+	if (intermediate_img.meta.width > terminal_size.ws_col)
+	{
+		intermediate_img.meta.width = terminal_size.ws_col;
+		float width_ratio = (float)src.meta.width/(float)src.meta.height;
+		intermediate_img.meta.height = terminal_size.ws_col * width_ratio * 0.48f;
+	}
 
 	auto ret = src.resize_image(intermediate_img);
 	if (!ret)
