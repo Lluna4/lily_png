@@ -7,7 +7,6 @@
 #include <functional>
 #include "utils.h"
 #include "filter.h"
-#include "ascii.h"
 #include "convert.h"
 #include <zlib.h>
 

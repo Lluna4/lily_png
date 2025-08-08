@@ -2,6 +2,10 @@
 #include "metadata.h"
 #include <expected>
 #include <cassert>
+#include <math.h>
+#include <sys/ioctl.h>
+#include <stdio.h>
+#include <unistd.h>
 
 namespace lily_png
 {
@@ -64,7 +68,7 @@ namespace lily_png
             return &buffer.data[calculate];
         }
         std::expected<size_t, png_error> resize_image(image &dest);
-
+        std::expected<bool, png_error> to_ascii(file_reader::buffer<char> &dest);
     private:
         size_t pixel_size;
         size_t pixel_size_bytes;
