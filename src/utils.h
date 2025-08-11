@@ -60,8 +60,10 @@ namespace lily_png
             this->meta = m;
         }
 
-        constexpr unsigned char *operator[](std::size_t y, std::size_t x) const
+        constexpr unsigned char *operator[](int y, int x) const
         {
+            if (x < 0 || y < 0)
+                return nullptr;
             if (x > meta.width || y > meta.height)
                 return nullptr;
             const size_t calculate = (y * meta.width + x) * pixel_size_bytes;

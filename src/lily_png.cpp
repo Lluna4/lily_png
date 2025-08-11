@@ -2,6 +2,8 @@
 
 #include <limits.h>
 
+#include "defilter.h"
+
 std::vector<lily_png::color_rgb> palette;
 bool palette_found = false;
 
@@ -175,22 +177,23 @@ std::expected<bool, lily_png::png_error> lily_png::apply_to_pixel(file_reader::b
 
 std::expected<bool, lily_png::png_error> lily_png::read_png(const std::string &file_path, image &data)
 {
-	file_reader::buffer<unsigned char> tmp_data{};
-	auto ret = read_raw_data(file_path, tmp_data, data.meta);
+	image tmp_data{};
+	auto ret = read_raw_data(file_path, tmp_data.buffer, data.meta);
 	if (!ret)
 	{
 		return std::unexpected(ret.error());
 	}
 	data.add_metadata(data.meta);
+	tmp_data.add_metadata(data.meta);
 	if (palette_found == true)
 	{
 		file_reader::buffer<unsigned char> dest_palette{};
-		auto apply_ret = apply_palette(tmp_data, dest_palette, data.meta);
+		auto apply_ret = apply_palette(tmp_data.buffer, dest_palette, data.meta);
 		if (!apply_ret)
 			return std::unexpected(apply_ret.error());
-		tmp_data = dest_palette;
+		tmp_data.buffer = dest_palette;
 	}
-	auto res = filter(tmp_data, data.buffer, data.meta);
+	auto res = defilter(tmp_data, data);
 	if (!res)
 		return std::unexpected(res.error());
 	return true;
