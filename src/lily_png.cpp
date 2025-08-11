@@ -177,21 +177,20 @@ std::expected<bool, lily_png::png_error> lily_png::apply_to_pixel(file_reader::b
 
 std::expected<bool, lily_png::png_error> lily_png::read_png(const std::string &file_path, image &data)
 {
-	image tmp_data{};
-	auto ret = read_raw_data(file_path, tmp_data.buffer, data.meta);
+	file_reader::buffer<unsigned char> tmp_data{};
+	auto ret = read_raw_data(file_path, tmp_data, data.meta);
 	if (!ret)
 	{
 		return std::unexpected(ret.error());
 	}
 	data.add_metadata(data.meta);
-	tmp_data.add_metadata(data.meta);
 	if (palette_found == true)
 	{
 		file_reader::buffer<unsigned char> dest_palette{};
-		auto apply_ret = apply_palette(tmp_data.buffer, dest_palette, data.meta);
+		auto apply_ret = apply_palette(tmp_data, dest_palette, data.meta);
 		if (!apply_ret)
 			return std::unexpected(apply_ret.error());
-		tmp_data.buffer = dest_palette;
+		tmp_data = dest_palette;
 	}
 	auto res = defilter(tmp_data, data);
 	if (!res)

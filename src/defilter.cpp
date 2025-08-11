@@ -27,35 +27,51 @@ std::expected<bool, lily_png::png_error> lily_png::defilter_pixel(unsigned char 
 	return true;
 }
 
-std::expected<bool, lily_png::png_error> lily_png::defilter(image &src, image &dest)
+std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<unsigned char> &src, image &dest)
 {
 	unsigned long scanlines = 0;
-	auto uncompress_ret = get_uncompressed_size(src.meta);
+	auto uncompress_ret = get_uncompressed_size(dest.meta);
 	if (!uncompress_ret)
 		return std::unexpected(uncompress_ret.error());
 	dest.buffer.allocate(uncompress_ret.value());
-	for (int y = 0; y < src.meta.height; y++)
+	
+	auto pixel_size_ret = get_pixel_bit_size(dest.meta);
+	if (!pixel_size_ret)
+		return std::unexpected(pixel_size_ret.error());
+	size_t pixel_size = pixel_size_ret.value();
+	size_t scanline_size = (dest.meta.width * pixel_size + 7)/8;
+	size_t stride = scanline_size + 1;
+	for (int y = 0; y < dest.meta.height; y++)
 	{
 		int x = 0;
 		int y2 = y;
 		while (y2 >= 0)
 		{
 			std::println("x{} y{}", x, y2);
-			unsigned char *a_ptr = dest[y2, x - 1];
+			size_t current_row_offset = (size_t)y2 * stride;
+			size_t prev_row_offset = (size_t)(y2 - 1) * stride;
+
 			unsigned char a = 0;
-			if (a_ptr != nullptr)
-				a = *a_ptr;
+			if (x > 0) {
+				// Current row, previous pixel column.
+				a = dest.buffer.data[current_row_offset + 1 + (x - 1)];
+			}
 
-			unsigned char *b_ptr = dest[y2 - 1, x];
+			// 'b' is the pixel above: Recon(x, y-1)
 			unsigned char b = 0;
-			if (b_ptr != nullptr)
-				b = *b_ptr;
+			if (y2 > 0) {
+				// Previous row, same pixel column.
+				b = dest.buffer.data[prev_row_offset + 1 + x];
+			}
 
-			unsigned char *c_ptr = dest[y2 - 1, x - 1];
+			// 'c' is the pixel top-left: Recon(x-1, y-1)
 			unsigned char c = 0;
-			if (c_ptr != nullptr)
-				c = *c_ptr;
-			auto ret = defilter_pixel(dest[y2, x], *src[y2, x], a, b, c, src.buffer.data[(y2 * (src.meta.width + 1))+ x]);
+			if (x > 0 && y2 > 0) {
+				// Previous row, previous pixel column.
+				c = dest.buffer.data[prev_row_offset + 1 + (x - 1)];
+			}
+
+			auto ret = defilter_pixel(&dest.buffer.data[y2 * scanline_size + x], src.data[current_row_offset + 1 + x], a, b, c, src.data[current_row_offset]);
 			if (!ret)
 				return std::unexpected(ret.error());
 			y2--;
