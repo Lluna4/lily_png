@@ -192,7 +192,7 @@ std::expected<bool, lily_png::png_error> lily_png::read_png(const std::string &f
 			return std::unexpected(apply_ret.error());
 		tmp_data = dest_palette;
 	}
-	auto res = defilter(tmp_data, data);
+	auto res = defilter(tmp_data, data.buffer, data.meta);
 	if (!res)
 		return std::unexpected(res.error());
 	return true;

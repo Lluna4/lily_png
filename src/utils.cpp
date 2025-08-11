@@ -130,7 +130,7 @@ std::expected<size_t, lily_png::png_error> lily_png::image::resize_image(image &
 
 std::expected<bool, lily_png::png_error> lily_png::image::to_ascii(file_reader::buffer<char> &dest)
 {
-	std::string chars = "`.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESwqkP6h9d4VpOGbUAKXHm8RD#$Bg0MNWQ%&@";
+	std::string chars = " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESwqkP6h9d4VpOGbUAKXHm8RD#$Bg0MNWQ%&@";
 	image intermediate_img(meta);
 	winsize terminal_size{};
 	ioctl(STDOUT_FILENO, TIOCGWINSZ, &terminal_size);
