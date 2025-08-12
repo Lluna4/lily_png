@@ -2,6 +2,7 @@
 
 #include "utils.h"
 #include <expected>
+#include <vector>
 
 namespace lily_png
 {

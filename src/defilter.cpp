@@ -35,7 +35,6 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	size_t pixel_size = pixel_size_ret.value();
 	size_t pixel_size_bytes = (pixel_size + 7)/8;
 	size_t scanline_size = (meta.width * pixel_size + 7)/8;
-	unsigned long scanlines = 0;
 	auto uncompress_ret = get_uncompressed_size(meta);
 	if (!uncompress_ret)
 		return std::unexpected(uncompress_ret.error());
@@ -43,36 +42,51 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	int y = 0;
 	size_t stride = scanline_size + 1;
 	int x = 0;
+	int index = 0;
+	std::vector<unsigned char> filters;
+	for (int yy = 0; yy < meta.height; yy++)
+	{
+		filters.push_back(src.data[index]);
+		index += scanline_size + 1;
+	}
+	bool end = false;
 	while (y <= meta.height)
 	{
-		if (y == meta.height)
-			x++;
-		else
+		if (end == false)
 			x = 0;
-		int before_x = x;
+		int x_before = x;
 		for (int y2 = y; y2 >= 0; y2--)
 		{
+			if (x >= meta.width * pixel_size_bytes)
+				break;
 			unsigned char a = 0;
-			if (x > 0)
-				a = dest.data[(y2 * stride) + (x - 1)];
+			if (x > pixel_size_bytes)
+				a = dest.data[(y2 * scanline_size) + (x - pixel_size_bytes)];
 
 			unsigned char b = 0;
 			if (y2 > 0)
-				b = dest.data[(y2 - 1) * stride + x];
+				b = dest.data[(y2 - 1) * scanline_size + x];
 			
 			unsigned char c = 0;
-			if (y2 > 0 && x > 0)
-				c = dest.data[(y2 - 1) * stride + (x - 1)];
-			auto ret = defilter_pixel(&dest.data[y2 * scanline_size + x], src.data[y2 * stride + x], a, b, c, src.data[y2 * stride]);
+			if (y2 > 0 && x > pixel_size_bytes)
+				c = dest.data[(y2 - 1) * scanline_size + (x - pixel_size_bytes)];
+			auto ret = defilter_pixel(&dest.data[y2 * scanline_size + x], src.data[y2 * stride + x + 1], a, b, c, src.data[y2 * stride]);
 			if (!ret)
 				return std::unexpected(ret.error());
 			x++;
 		}
-		x = before_x;
-		if (y != meta.height)
+		x = x_before;
+		if (end == false)
 			y++;
-		else if (y == meta.height && x == meta.width)
-			y++;
+		else
+			x++;
+		if (y == meta.height)
+		{
+			end = true;
+			y--;
+		}
+		if (x >= meta.width * pixel_size_bytes)
+			break;
 	}
 	return true;
 }

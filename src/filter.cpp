@@ -65,7 +65,7 @@ std::expected<bool, lily_png::png_error> lily_png::filter(file_reader::buffer<un
 	while (scanlines < meta.height)
 	{
 		unsigned char filter = data.data[index];
-		//std::println("Filter {}", filter);
+		std::println("Filter {}", filter);
 		auto res = filter_scanline(&data.data[index + 1], previous_scanline, &dest.data[index_dest], meta, filter);
 		if (!res)
 			return std::unexpected(res.error());
