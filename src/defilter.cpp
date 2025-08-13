@@ -41,50 +41,50 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	dest.allocate(uncompress_ret.value());
 	int y = 0;
 	size_t stride = scanline_size + 1;
+	bool y_end = false;
 	int x = 0;
-	int index = 0;
-	std::vector<unsigned char> filters;
-	for (int yy = 0; yy < meta.height; yy++)
+	int x_before = 0;
+
+	while (true)
 	{
-		filters.push_back(src.data[index]);
-		index += scanline_size + 1;
-	}
-	bool end = false;
-	while (y <= meta.height)
-	{
-		if (end == false)
+		if (y == meta.height)
+		{
+			y_end = true;
+			y--;
+		}
+		if (y_end == false)
 			x = 0;
-		int x_before = x;
+		
+		x_before = x;
 		for (int y2 = y; y2 >= 0; y2--)
 		{
 			if (x >= meta.width * pixel_size_bytes)
 				break;
+
 			unsigned char a = 0;
-			if (x > pixel_size_bytes)
+			if (x >= pixel_size_bytes)
 				a = dest.data[(y2 * scanline_size) + (x - pixel_size_bytes)];
 
 			unsigned char b = 0;
 			if (y2 > 0)
-				b = dest.data[(y2 - 1) * scanline_size + x];
+				b = dest.data[((y2 - 1) * scanline_size) + x];
 			
 			unsigned char c = 0;
-			if (y2 > 0 && x > pixel_size_bytes)
-				c = dest.data[(y2 - 1) * scanline_size + (x - pixel_size_bytes)];
-			auto ret = defilter_pixel(&dest.data[y2 * scanline_size + x], src.data[y2 * stride + x + 1], a, b, c, src.data[y2 * stride]);
+			if (y2 > 0 && x >= pixel_size_bytes)
+				c = dest.data[((y2 - 1) * scanline_size) + (x - pixel_size_bytes)];
+
+			auto ret = defilter_pixel(&dest.data[(y2 * scanline_size) + x], src.data[(y2 * stride) + x + 1], a, b, c, src.data[y2 * stride]);
 			if (!ret)
 				return std::unexpected(ret.error());
 			x++;
 		}
 		x = x_before;
-		if (end == false)
+
+		if (y_end == false)
 			y++;
 		else
 			x++;
-		if (y == meta.height)
-		{
-			end = true;
-			y--;
-		}
+		
 		if (x >= meta.width * pixel_size_bytes)
 			break;
 	}
