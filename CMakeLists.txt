@@ -5,7 +5,11 @@ set(CMAKE_CXX_STANDARD 23)
 
 add_subdirectory(file_reader)
 target_include_directories(file_read INTERFACE "file_reader")
+
 find_package(ZLIB)
+find_package(OpenGL)
+find_library(METAL Metal)
+
 
 add_library(lily_png STATIC src/lily_png.cpp
         src/metadata.cpp
@@ -18,5 +22,9 @@ add_library(lily_png STATIC src/lily_png.cpp
         src/convert.h
         src/defilter.cpp
         src/defilter.h)
-target_link_libraries(lily_png PRIVATE file_read ZLIB::ZLIB)
+target_link_libraries(lily_png PRIVATE file_read ZLIB::ZLIB OpenGL::GL "-framework Metal")
 
+target_include_directories(lily_png
+        PRIVATE
+        dependencies
+)
