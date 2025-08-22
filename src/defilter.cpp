@@ -4,6 +4,15 @@
 #include "defilter.h"
 #include "Foundation/Foundation.hpp"
 #include "Metal/Metal.hpp"
+#include <fstream>
+
+struct parameters
+{
+	int y_start;
+	int x_start;
+	int scanline_size;
+	int bytes_per_pixel;
+};
 
 std::expected<bool, lily_png::png_error> lily_png::defilter_pixel(unsigned char *dest, unsigned char x,unsigned char a, unsigned char b, unsigned char c, unsigned char type)
 {
@@ -70,9 +79,25 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 {
 	MTL::Device *dev = MTL::CreateSystemDefaultDevice();
 
-	MTL::Library *lib = dev->newDefaultLibrary();
+	std::ifstream file;
+	file.open("shaders/compute.metal");
+	std::stringstream reader;
+	reader << file.rdbuf();
+	std::string str = reader.str();
 
-	MTL::Function *func = lib->newFunction(NS::String::string("defilter", NS::ASCIIStringEncoding));
+	NS::String *shader_code = NS::String::string(str.c_str(), NS::StringEncoding::UTF8StringEncoding);
+
+	NS::Error *err = nullptr;
+	MTL::CompileOptions *options = nullptr;
+
+	MTL::Library *lib = dev->newLibrary(shader_code, options, &err);
+	if (!lib)
+	{
+		std::println("{}", err->localizedDescription()->cString(NS::StringEncoding::UTF8StringEncoding));
+		return std::unexpected(png_error::read_failed);
+	}
+	NS::String *comp_func_name = NS::String::string("defilter", NS::StringEncoding::UTF8StringEncoding);
+	MTL::Function *func = lib->newFunction(comp_func_name);
 
 	NS::Error *error = nullptr;
 	MTL::ComputePipelineState *compute_pipeline = dev->newComputePipelineState(func, &error);
@@ -96,6 +121,19 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	int x = 0;
 	int x_before = 0;
 
+	MTL::Buffer *buf = dev->newBuffer(uncompress_ret.value(), MTL::ResourceStorageModeShared);
+	MTL::Buffer *gpu_ret = dev->newBuffer(uncompress_ret.value(), MTL::ResourceStorageModeShared);
+
+	MTL::CommandQueue *com_queue = dev->newCommandQueue();
+	MTL::CommandBuffer *com_buffer = com_queue->commandBuffer();
+	MTL::ComputeCommandEncoder *com_encoder = com_buffer->computeCommandEncoder();
+
+	com_encoder->setComputePipelineState(compute_pipeline);
+	com_encoder->setBuffer(buf, 0, 0);
+	com_encoder->setBuffer(gpu_ret, 0, 1);
+
+	memcpy(buf->contents(), src.data, uncompress_ret.value());
+
 	while (true)
 	{
 		if (y == meta.height)
@@ -107,14 +145,26 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 			x = 0;
 		
 		x_before = x;
-		MTL::Buffer *buf = dev->newBuffer(y, MTL::ResourceStorageModeShared);
 
-		MTL::CommandQueue *com_queue = dev->newCommandQueue();
-		MTL::CommandBuffer *com_buffer = com_queue->commandBuffer();
-		MTL::ComputeCommandEncoder *com_encoder = com_buffer->computeCommandEncoder();
+		parameters p = {0};
+		p.bytes_per_pixel = pixel_size_bytes;
+		p.scanline_size = scanline_size;
+		p.x_start = x;
+		p.y_start = y;
+		com_encoder->setBytes(&p, sizeof(parameters), 2);
 
-		com_encoder->setComputePipelineState(compute_pipeline);
-		com_encoder->setBuffer(buf, 0, 0);
+		MTL::Size grid_size = MTL::Size(y, 1, 1);
+		NS::UInteger max_threads = compute_pipeline->maxTotalThreadsPerThreadgroup();
+		if (max_threads > y)
+		{
+			max_threads = y;
+		}
+
+		MTL::Size threadgroupsize = MTL::Size(max_threads, 1, 1);
+		com_encoder->dispatchThreadgroups(grid_size, threadgroupsize);
+		com_encoder->endEncoding();
+		com_buffer->commit();
+		com_buffer->waitUntilCompleted();
 
 		if (y_end == false)
 			y++;
@@ -124,5 +174,16 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 		if (x >= meta.width * pixel_size_bytes)
 			break;
 	}
+	memcpy(dest.data, gpu_ret->contents(), uncompress_ret.value());
+
+	com_encoder->release();
+	com_buffer->release();
+	com_queue->release();
+	buf->release();
+	gpu_ret->release();
+	compute_pipeline->release();
+	func->release();
+	lib->release();
+	dev->release();
 	return true;
 }
