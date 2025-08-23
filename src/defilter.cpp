@@ -121,19 +121,19 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	int x = 0;
 	int x_before = 0;
 
-	MTL::Buffer *buf = dev->newBuffer(uncompress_ret.value(), MTL::ResourceStorageModeShared);
-	MTL::Buffer *gpu_ret = dev->newBuffer(uncompress_ret.value(), MTL::ResourceStorageModeShared);
+	MTL::Buffer *buf = dev->newBuffer(uncompress_ret.value() + 1, MTL::ResourceStorageModeShared);
+	MTL::Buffer *gpu_ret = dev->newBuffer(uncompress_ret.value() + 1, MTL::ResourceStorageModeShared);
 
-	MTL::CommandQueue *com_queue = dev->newCommandQueue();
-	MTL::CommandBuffer *com_buffer = com_queue->commandBuffer();
-	MTL::ComputeCommandEncoder *com_encoder = com_buffer->computeCommandEncoder();
 
-	com_encoder->setComputePipelineState(compute_pipeline);
-	com_encoder->setBuffer(buf, 0, 0);
-	com_encoder->setBuffer(gpu_ret, 0, 1);
+	MTL::Buffer *p = dev->newBuffer(sizeof(parameters), MTL::ResourceStorageModeShared);
+	parameters *p_ptr = static_cast<parameters *>(p->contents());
 
 	memcpy(buf->contents(), src.data, uncompress_ret.value());
+	MTL::CommandQueue *com_queue = dev->newCommandQueue();
+	p_ptr->bytes_per_pixel = pixel_size_bytes;
+	p_ptr->scanline_size = scanline_size;
 
+	MTL::SharedEvent *shared_event = dev->newSharedEvent();
 	while (true)
 	{
 		if (y == meta.height)
@@ -141,43 +141,36 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 			y_end = true;
 			y--;
 		}
-		if (y_end == false)
-			x = 0;
-		
-		x_before = x;
 
-		parameters p = {0};
-		p.bytes_per_pixel = pixel_size_bytes;
-		p.scanline_size = scanline_size;
-		p.x_start = x;
-		p.y_start = y;
-		com_encoder->setBytes(&p, sizeof(parameters), 2);
+		p_ptr->x_start = x;
+		p_ptr->y_start = y;
 
-		MTL::Size grid_size = MTL::Size(y, 1, 1);
-		NS::UInteger max_threads = compute_pipeline->maxTotalThreadsPerThreadgroup();
-		if (max_threads > y)
-		{
-			max_threads = y;
-		}
+		MTL::CommandBuffer *com_buffer = com_queue->commandBuffer();
+		MTL::ComputeCommandEncoder *com_encoder = com_buffer->computeCommandEncoder();
 
-		MTL::Size threadgroupsize = MTL::Size(max_threads, 1, 1);
+		com_encoder->setComputePipelineState(compute_pipeline);
+		com_encoder->setBuffer(buf, 0, 0);
+		com_encoder->setBuffer(gpu_ret, 0, 1);
+		com_encoder->setBuffer(p, 0, 2);
+		MTL::Size grid_size = MTL::Size(y + 1, 1, 1);
+		MTL::Size threadgroupsize;
+		threadgroupsize = MTL::Size(1, 1, 1);
 		com_encoder->dispatchThreadgroups(grid_size, threadgroupsize);
 		com_encoder->endEncoding();
 		com_buffer->commit();
 		com_buffer->waitUntilCompleted();
+		com_encoder->release();
+		com_buffer->release();
 
 		if (y_end == false)
 			y++;
 		else
 			x++;
-		
+
 		if (x >= meta.width * pixel_size_bytes)
 			break;
 	}
 	memcpy(dest.data, gpu_ret->contents(), uncompress_ret.value());
-
-	com_encoder->release();
-	com_buffer->release();
 	com_queue->release();
 	buf->release();
 	gpu_ret->release();
