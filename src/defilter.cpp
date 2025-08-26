@@ -134,20 +134,21 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	p_ptr->scanline_size = scanline_size;
 
 	MTL::SharedEvent *shared_event = dev->newSharedEvent();
+	MTL::SharedEventListener *list;
+	shared_event->setSignaledValue(1);
 	while (true)
 	{
+
 		if (y == meta.height)
 		{
 			y_end = true;
 			y--;
 		}
 
-		p_ptr->x_start = x;
-		p_ptr->y_start = y;
-
 		MTL::CommandBuffer *com_buffer = com_queue->commandBuffer();
 		MTL::ComputeCommandEncoder *com_encoder = com_buffer->computeCommandEncoder();
-
+		p_ptr->x_start = x;
+		p_ptr->y_start = y;
 		com_encoder->setComputePipelineState(compute_pipeline);
 		com_encoder->setBuffer(buf, 0, 0);
 		com_encoder->setBuffer(gpu_ret, 0, 1);
@@ -157,8 +158,12 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 		threadgroupsize = MTL::Size(1, 1, 1);
 		com_encoder->dispatchThreadgroups(grid_size, threadgroupsize);
 		com_encoder->endEncoding();
+		com_buffer->encodeSignalEvent(shared_event, 1);
+		com_buffer->encodeWait(shared_event, 0);
+		shared_event->waitUntilSignaledValue(1, -1);
+		shared_event->setSignaledValue(0);
 		com_buffer->commit();
-		com_buffer->waitUntilCompleted();
+		//com_buffer->waitUntilCompleted();
 		com_encoder->release();
 		com_buffer->release();
 
