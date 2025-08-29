@@ -2,9 +2,10 @@
 #define MTL_PRIVATE_IMPLEMENTATION
 
 #include "defilter.h"
-#include "Foundation/Foundation.hpp"
-#include "Metal/Metal.hpp"
+#include <vulkan/vulkan.hpp>
 #include <fstream>
+#include <sstream>
+#include <filesystem>
 
 struct parameters
 {
@@ -75,35 +76,234 @@ static void loop_diag(unsigned char *src, unsigned char *dest, lily_png::metadat
 	}
 }
 
-std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<unsigned char> &src, file_reader::buffer<unsigned char> &dest, metadata &meta)
+enum class Error
 {
-	MTL::Device *dev = MTL::CreateSystemDefaultDevice();
+	NO_SUITABLE_QUEUE_FAMILY_FOUND, 
+	NO_SUITABLE_MEMORY_FOUND
+};
 
+
+template <>
+struct std::formatter<Error>
+{
+
+    constexpr auto parse(std::format_parse_context& ctx) {
+        return ctx.begin();
+    }
+
+    auto format(const Error& id, std::format_context& ctx) const
+    {
+        if (id == Error::NO_SUITABLE_QUEUE_FAMILY_FOUND)
+            return std::format_to(ctx.out(), "{}", "A suitable queue family has not been found");
+		if (id == Error::NO_SUITABLE_MEMORY_FOUND)
+			return std::format_to(ctx.out(), "{}", "A suitable memory type has not been found");
+        return std::format_to(ctx.out(), "{}", "Unknown error");
+    }
+};
+
+
+vk::PhysicalDevice get_physical_device(vk::Instance &instance)
+{
+	std::vector<vk::PhysicalDevice> devices = instance.enumeratePhysicalDevices();
+	std::vector<int> scores;
+	for (vk::PhysicalDevice &device: devices) // score is only representative for compute
+	{
+		vk::PhysicalDeviceProperties device_propierties = device.getProperties();
+
+		scores.push_back((device_propierties.limits.maxComputeSharedMemorySize + device_propierties.limits.maxComputeWorkGroupCount.front() + device_propierties.limits.maxComputeWorkGroupInvocations + device_propierties.limits.maxComputeWorkGroupSize.front())/4);
+	}
+
+	int max_index = 0;
+	for (int i = 1; i < scores.size(); i++)
+	{
+		if (scores[i] > scores[max_index])
+			max_index = i;
+	}
+	
+	std::println("Max score {}", scores[max_index]);
+	return devices[max_index];
+}
+
+std::expected<int,Error> get_compute_queue_family_index(vk::PhysicalDevice &physical_device)
+{
+	std::vector<vk::QueueFamilyProperties> queue_propierties = physical_device.getQueueFamilyProperties();
+	int index = 0;
+
+	for (int i = 0; i < queue_propierties.size(); i++)
+	{
+		if (queue_propierties[i].queueFlags & vk::QueueFlagBits::eCompute)
+		{
+			return i;
+		}
+	}
+	return std::unexpected(Error::NO_SUITABLE_QUEUE_FAMILY_FOUND);
+}
+
+std::expected<std::pair<vk::DeviceMemory, vk::Buffer>, Error> create_buffer(const vk::Device &device, vk::PhysicalDevice selected_physical_device, vk::BufferUsageFlagBits usage, size_t size)
+{
+    vk::BufferCreateInfo buffer_info = vk::BufferCreateInfo(vk::BufferCreateFlags(), size, usage, vk::SharingMode::eExclusive);
+    vk::Buffer vertex_buffer = device.createBuffer(buffer_info);
+    VkMemoryRequirements memory_requirements;
+    vkGetBufferMemoryRequirements(device, vertex_buffer, &memory_requirements);
+    vk::PhysicalDeviceMemoryProperties memory_properties = selected_physical_device.getMemoryProperties();
+
+    int propierty_index = -1;
+    for (int i = 0; i < memory_properties.memoryTypeCount; i++)
+    {
+        if (memory_properties.memoryTypes[i].propertyFlags & vk::MemoryPropertyFlags(vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent))
+        {
+            propierty_index = i;
+            break;
+        }
+    }
+    if (propierty_index == -1)
+    {
+		return std::unexpected(Error::NO_SUITABLE_MEMORY_FOUND);
+    }
+
+    vk::MemoryAllocateInfo alloc_info = vk::MemoryAllocateInfo(memory_requirements.size, propierty_index);
+
+    vk::DeviceMemory vertex_buffer_memory = device.allocateMemory(alloc_info);
+    device.bindBufferMemory(vertex_buffer, vertex_buffer_memory, 0);
+    return std::make_pair(vertex_buffer_memory, vertex_buffer);
+}
+
+std::string get_file_contents(std::string filename)
+{
 	std::ifstream file;
-	file.open("shaders/compute.metal");
+	file.open(filename);
 	std::stringstream reader;
 	reader << file.rdbuf();
-	std::string str = reader.str();
+	return reader.str();
+}
 
-	NS::String *shader_code = NS::String::string(str.c_str(), NS::StringEncoding::UTF8StringEncoding);
+std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<unsigned char> &src, file_reader::buffer<unsigned char> &dest, metadata &meta)
+{
 
-	NS::Error *err = nullptr;
-	MTL::CompileOptions *options = nullptr;
+	vk::ApplicationInfo app_info("Test_compute", 1, nullptr, 0, VK_API_VERSION_1_4);
+	
+	#ifdef __APPLE__
+	std::vector<const char *> layers = {"VK_LAYER_KHRONOS_validation"};
+	#else
+	std::vector<const char *> layers = {};
+	#endif
+	#ifdef __APPLE__
+	std::vector<const char *> extensions = {"VK_KHR_portability_enumeration", VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
+	#else
+	std::vector<const char *> extensions = {};
+	#endif
+	vk::InstanceCreateInfo instance_info(vk::InstanceCreateFlags(VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR), &app_info, layers.size(), layers.data(), extensions.size(), extensions.data());
 
-	MTL::Library *lib = dev->newLibrary(shader_code, options, &err);
-	if (!lib)
+	vk::Instance instance = vk::createInstance(instance_info);
+
+	vk::PhysicalDevice physical_device = get_physical_device(instance);
+
+	std::println("Selected device: {}", physical_device.getProperties().deviceName.data());
+
+	auto queue_family_index_ret = get_compute_queue_family_index(physical_device);
+
+	if (!queue_family_index_ret)
 	{
-		std::println("{}", err->localizedDescription()->cString(NS::StringEncoding::UTF8StringEncoding));
-		return std::unexpected(png_error::read_failed);
+		std::println("{}", queue_family_index_ret.error());
+		return -1;
 	}
-	NS::String *comp_func_name = NS::String::string("defilter", NS::StringEncoding::UTF8StringEncoding);
-	MTL::Function *func = lib->newFunction(comp_func_name);
+	int queue_family_index = queue_family_index_ret.value();
 
-	NS::Error *error = nullptr;
-	MTL::ComputePipelineState *compute_pipeline = dev->newComputePipelineState(func, &error);
-	if (error)
-		return std::unexpected(png_error::read_failed);
+	std::println("queue family index is {}", queue_family_index);
 
+	float queue_priority = 1.0f;
+	vk::DeviceQueueCreateInfo device_queue_info(vk::DeviceQueueCreateFlags(), queue_family_index, 1, &queue_priority);
+
+	#ifdef __APPLE__
+	std::vector<const char *> device_extensions = {"VK_KHR_portability_subset"};
+	#else
+	std::vector<const char *> device_extensions = {};
+	#endif
+	vk::PhysicalDeviceFeatures device_features = vk::PhysicalDeviceFeatures();
+	vk::DeviceCreateInfo device_info(vk::DeviceCreateFlags(), 1, &device_queue_info, 0, nullptr, device_extensions.size(), device_extensions.data(), &device_features);
+	vk::Device device = physical_device.createDevice(device_info);
+
+	float in_data_cpu[10] = {1.0f, 3.3f, 7.5f, 5.6f, 7.1f, 8.5f, 7.1f, 3.2f, 2.3f, 0.5f};
+
+	auto buffer_in_ret_ret = create_buffer(device, physical_device, vk::BufferUsageFlagBits::eStorageBuffer, 10 * sizeof(float));
+	if (!buffer_in_ret_ret)
+	{
+		std::println("{}", buffer_in_ret_ret.error());
+		return -1;
+	}
+	auto buffer_in_ret = buffer_in_ret_ret.value();
+	vk::DeviceMemory buffer_in_memory = buffer_in_ret.first;
+	vk::Buffer buffer_in = buffer_in_ret.second;
+
+	float *in_data = (float *)device.mapMemory(buffer_in_memory, 0, 10 * sizeof(float));
+	std::memcpy(in_data, in_data_cpu, 10 * sizeof(float));
+
+	auto buffer_out_ret_ret = create_buffer(device, physical_device, vk::BufferUsageFlagBits::eStorageBuffer, 5 * sizeof(float));
+	if (!buffer_out_ret_ret)
+	{
+		std::println("{}", buffer_out_ret_ret.error());
+		return -1;
+	}
+	
+	auto buffer_out_ret = buffer_out_ret_ret.value();
+	vk::DeviceMemory buffer_out_memory = buffer_out_ret.first;
+	vk::Buffer buffer_out = buffer_out_ret.second;
+
+	auto buffer_params_ret_ret = create_buffer(device, physical_device, vk::BufferUsageFlagBits::eStorageBuffer, sizeof(parameters));
+	if (!buffer_params_ret_ret)
+	{
+		std::println("{}", buffer_params_ret_ret.error());
+		return -1;
+	}
+	auto buffer_params_ret = buffer_params_ret_ret.value();
+	vk::DeviceMemory buffer_params_memory = buffer_params_ret.first;
+	vk::Buffer buffer_params = buffer_params_ret.second;
+	parameters *param = (parameters *)device.mapMemory(buffer_params_memory, 0, sizeof(parameters));
+
+	if (!std::filesystem::exists("../shaders/a.spv"))
+	{
+		std::println("Shader file not found");
+		return -1;
+	}
+	std::string compiled_code = get_file_contents("../shaders/a.spv");
+	vk::ShaderModuleCreateInfo shader_info(vk::ShaderModuleCreateFlags(), compiled_code.size(), reinterpret_cast<const uint32_t*>(compiled_code.c_str()));
+	vk::ShaderModule shader_module = device.createShaderModule(shader_info);
+
+
+	const std::vector<vk::DescriptorSetLayoutBinding> descriptor_set_layout_binding = 
+	{
+		{0, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute},
+		{1, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute},
+		{2, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute}
+	};
+	vk::DescriptorSetLayoutCreateInfo descriptor_layout_info(vk::DescriptorSetLayoutCreateFlags(), descriptor_set_layout_binding);
+	vk::DescriptorSetLayout descriptor_set_layout = device.createDescriptorSetLayout(descriptor_layout_info);
+
+	vk::PipelineLayoutCreateInfo pipeline_layout_info(vk::PipelineLayoutCreateFlags(), descriptor_set_layout);
+	vk::PipelineLayout pipeline_layout = device.createPipelineLayout(pipeline_layout_info);
+	vk::PipelineCache pipeline_cache = device.createPipelineCache(vk::PipelineCacheCreateInfo());
+
+	vk::PipelineShaderStageCreateInfo pipeline_shader_info(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eCompute, shader_module, "main");
+	vk::ComputePipelineCreateInfo compute_pipeline_info(vk::PipelineCreateFlags(), pipeline_shader_info, pipeline_layout);
+	vk::Pipeline pipeline = device.createComputePipeline(pipeline_cache, compute_pipeline_info).value;
+
+	
+	vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer, 2);
+	vk::DescriptorPoolCreateInfo descriptor_pool_info(vk::DescriptorPoolCreateFlags(), 1, descriptor_pool_size);
+	vk::DescriptorPool descriptor_pool = device.createDescriptorPool(descriptor_pool_info);
+
+	vk::DescriptorSetAllocateInfo descriptor_alloc_info(descriptor_pool, 1, &descriptor_set_layout);
+	std::vector<vk::DescriptorSet> descriptor_sets = device.allocateDescriptorSets(descriptor_alloc_info);
+	vk::DescriptorBufferInfo buffer_in_info(buffer_in, 0, 10 * sizeof(float));
+	vk::DescriptorBufferInfo buffer_out_info(buffer_out, 0, 10 * sizeof(float));
+	vk::DescriptorBufferInfo buffer_params_info(buffer_params, 0, sizeof(parameters));
+	std::vector<vk::WriteDescriptorSet> write_descriptor_sets =
+	{
+		{descriptor_sets[0], 0, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &buffer_in_info},
+		{descriptor_sets[0], 1, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &buffer_out_info},
+		{descriptor_sets[0], 2, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &buffer_params_info}
+	};
+	device.updateDescriptorSets(write_descriptor_sets, {});
 
 	auto pixel_size_ret = get_pixel_bit_size(meta);
 	if (!pixel_size_ret)
@@ -120,52 +320,42 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	bool y_end = false;
 	int x = 0;
 	int x_before = 0;
+	param->bytes_per_pixel = pixel_size_bytes;
+	param->scanline_size = scanline_size;
+	vk::CommandPoolCreateInfo command_pool_info(vk::CommandPoolCreateFlags(), queue_family_index);
+	vk::CommandPool command_pool = device.createCommandPool(command_pool_info);
 
-	MTL::Buffer *buf = dev->newBuffer(uncompress_ret.value() + 1, MTL::ResourceStorageModeShared);
-	MTL::Buffer *gpu_ret = dev->newBuffer(uncompress_ret.value() + 1, MTL::ResourceStorageModeShared);
+	vk::CommandBufferAllocateInfo command_buffer_alloc_info(command_pool, vk::CommandBufferLevel::ePrimary, 1);
+	std::vector<vk::CommandBuffer> command_buffers = device.allocateCommandBuffers(command_buffer_alloc_info);
 
+	vk::CommandBuffer command_buffer = command_buffers.front();
+	vk::FenceCreateInfo fence_info(vk::FenceCreateFlags(vk::FenceCreateFlagBits::eSignaled));
+	vk::Fence fence = device.createFence(fence_info);
+	vk::Queue queue = device.getQueue(queue_family_index, 0);
 
-	MTL::Buffer *p = dev->newBuffer(sizeof(parameters), MTL::ResourceStorageModeShared);
-	parameters *p_ptr = static_cast<parameters *>(p->contents());
-
-	memcpy(buf->contents(), src.data, uncompress_ret.value());
-	MTL::CommandQueue *com_queue = dev->newCommandQueue();
-	p_ptr->bytes_per_pixel = pixel_size_bytes;
-	p_ptr->scanline_size = scanline_size;
-
-	MTL::SharedEvent *shared_event = dev->newSharedEvent();
-	MTL::SharedEventListener *list;
-	shared_event->setSignaledValue(1);
 	while (true)
 	{
+		auto res = device.waitForFences({fence}, true, -1);
 
 		if (y == meta.height)
 		{
 			y_end = true;
 			y--;
 		}
+		
+		param->x_start = x;
+		param->y_start = y;
+		vkResetCommandBuffer(command_buffer, 0);
+		vk::CommandBufferBeginInfo command_buffer_begin_info(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+		command_buffer.begin(command_buffer_begin_info);
+		command_buffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
+		command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline_layout, 0, {descriptor_sets[0]}, {});
+		command_buffer.dispatch(y, 1, 1);
+		command_buffer.end();
+		vk::SubmitInfo submit_info(0, nullptr, nullptr, 1, &command_buffer);
+		queue.submit({submit_info}, fence);
 
-		MTL::CommandBuffer *com_buffer = com_queue->commandBuffer();
-		MTL::ComputeCommandEncoder *com_encoder = com_buffer->computeCommandEncoder();
-		p_ptr->x_start = x;
-		p_ptr->y_start = y;
-		com_encoder->setComputePipelineState(compute_pipeline);
-		com_encoder->setBuffer(buf, 0, 0);
-		com_encoder->setBuffer(gpu_ret, 0, 1);
-		com_encoder->setBuffer(p, 0, 2);
-		MTL::Size grid_size = MTL::Size(y + 1, 1, 1);
-		MTL::Size threadgroupsize;
-		threadgroupsize = MTL::Size(1, 1, 1);
-		com_encoder->dispatchThreadgroups(grid_size, threadgroupsize);
-		com_encoder->endEncoding();
-		com_buffer->encodeSignalEvent(shared_event, 1);
-		com_buffer->encodeWait(shared_event, 0);
-		shared_event->waitUntilSignaledValue(1, -1);
-		shared_event->setSignaledValue(0);
-		com_buffer->commit();
-		//com_buffer->waitUntilCompleted();
-		com_encoder->release();
-		com_buffer->release();
+		
 
 		if (y_end == false)
 			y++;
@@ -175,13 +365,5 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 		if (x >= meta.width * pixel_size_bytes)
 			break;
 	}
-	memcpy(dest.data, gpu_ret->contents(), uncompress_ret.value());
-	com_queue->release();
-	buf->release();
-	gpu_ret->release();
-	compute_pipeline->release();
-	func->release();
-	lib->release();
-	dev->release();
 	return true;
 }
