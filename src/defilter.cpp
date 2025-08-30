@@ -180,6 +180,22 @@ std::string get_file_contents(std::string filename)
 std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<unsigned char> &src, file_reader::buffer<unsigned char> &dest, metadata &meta)
 {
 
+	auto pixel_size_ret = get_pixel_bit_size(meta);
+	if (!pixel_size_ret)
+		return std::unexpected(pixel_size_ret.error());
+	size_t pixel_size = pixel_size_ret.value();
+	size_t pixel_size_bytes = (pixel_size + 7)/8;
+	size_t scanline_size = (meta.width * pixel_size + 7)/8;
+	auto uncompress_ret = get_uncompressed_size(meta);
+	if (!uncompress_ret)
+		return std::unexpected(uncompress_ret.error());
+	dest.allocate(uncompress_ret.value());
+	int y = 0;
+	size_t stride = scanline_size + 1;
+	bool y_end = false;
+	int x = 0;
+	int x_before = 0;
+
 	vk::ApplicationInfo app_info("Test_compute", 1, nullptr, 0, VK_API_VERSION_1_4);
 	
 	#ifdef __APPLE__
@@ -223,9 +239,9 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	vk::DeviceCreateInfo device_info(vk::DeviceCreateFlags(), 1, &device_queue_info, 0, nullptr, device_extensions.size(), device_extensions.data(), &device_features);
 	vk::Device device = physical_device.createDevice(device_info);
 
-	float in_data_cpu[10] = {1.0f, 3.3f, 7.5f, 5.6f, 7.1f, 8.5f, 7.1f, 3.2f, 2.3f, 0.5f};
 
-	auto buffer_in_ret_ret = create_buffer(device, physical_device, vk::BufferUsageFlagBits::eStorageBuffer, 10 * sizeof(float));
+	size_t size = uncompress_ret.value();
+	auto buffer_in_ret_ret = create_buffer(device, physical_device, vk::BufferUsageFlagBits::eStorageBuffer, size);
 	if (!buffer_in_ret_ret)
 	{
 		std::println("{}", buffer_in_ret_ret.error());
@@ -235,10 +251,11 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	vk::DeviceMemory buffer_in_memory = buffer_in_ret.first;
 	vk::Buffer buffer_in = buffer_in_ret.second;
 
-	float *in_data = (float *)device.mapMemory(buffer_in_memory, 0, 10 * sizeof(float));
-	std::memcpy(in_data, in_data_cpu, 10 * sizeof(float));
+	
+	float *in_data = (float *)device.mapMemory(buffer_in_memory, 0, size);
+	std::memcpy(in_data, src.data, size);
 
-	auto buffer_out_ret_ret = create_buffer(device, physical_device, vk::BufferUsageFlagBits::eStorageBuffer, 5 * sizeof(float));
+	auto buffer_out_ret_ret = create_buffer(device, physical_device, vk::BufferUsageFlagBits::eStorageBuffer, size);
 	if (!buffer_out_ret_ret)
 	{
 		std::println("{}", buffer_out_ret_ret.error());
@@ -294,8 +311,8 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 
 	vk::DescriptorSetAllocateInfo descriptor_alloc_info(descriptor_pool, 1, &descriptor_set_layout);
 	std::vector<vk::DescriptorSet> descriptor_sets = device.allocateDescriptorSets(descriptor_alloc_info);
-	vk::DescriptorBufferInfo buffer_in_info(buffer_in, 0, 10 * sizeof(float));
-	vk::DescriptorBufferInfo buffer_out_info(buffer_out, 0, 10 * sizeof(float));
+	vk::DescriptorBufferInfo buffer_in_info(buffer_in, 0, size);
+	vk::DescriptorBufferInfo buffer_out_info(buffer_out, 0, size);
 	vk::DescriptorBufferInfo buffer_params_info(buffer_params, 0, sizeof(parameters));
 	std::vector<vk::WriteDescriptorSet> write_descriptor_sets =
 	{
@@ -305,21 +322,6 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	};
 	device.updateDescriptorSets(write_descriptor_sets, {});
 
-	auto pixel_size_ret = get_pixel_bit_size(meta);
-	if (!pixel_size_ret)
-		return std::unexpected(pixel_size_ret.error());
-	size_t pixel_size = pixel_size_ret.value();
-	size_t pixel_size_bytes = (pixel_size + 7)/8;
-	size_t scanline_size = (meta.width * pixel_size + 7)/8;
-	auto uncompress_ret = get_uncompressed_size(meta);
-	if (!uncompress_ret)
-		return std::unexpected(uncompress_ret.error());
-	dest.allocate(uncompress_ret.value());
-	int y = 0;
-	size_t stride = scanline_size + 1;
-	bool y_end = false;
-	int x = 0;
-	int x_before = 0;
 	param->bytes_per_pixel = pixel_size_bytes;
 	param->scanline_size = scanline_size;
 	vk::CommandPoolCreateInfo command_pool_info(vk::CommandPoolCreateFlags(), queue_family_index);
@@ -355,8 +357,6 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 		vk::SubmitInfo submit_info(0, nullptr, nullptr, 1, &command_buffer);
 		queue.submit({submit_info}, fence);
 
-		
-
 		if (y_end == false)
 			y++;
 		else
@@ -365,5 +365,22 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 		if (x >= meta.width * pixel_size_bytes)
 			break;
 	}
+	char *out_data = (char *)device.mapMemory(buffer_out_memory, 0, size);
+	memcpy(dest.data, out_data, size);
+
+	device.unmapMemory(buffer_in_memory);
+	device.unmapMemory(buffer_out_memory);
+	device.destroyPipelineLayout(pipeline_layout);
+	device.destroyPipelineCache(pipeline_cache);
+	device.destroyShaderModule(shader_module);
+	device.destroyPipeline(pipeline);
+	device.destroyDescriptorPool(descriptor_pool);
+	device.destroyDescriptorSetLayout(descriptor_set_layout);
+	device.freeMemory(buffer_in_memory);
+	device.freeMemory(buffer_out_memory);
+	device.destroyBuffer(buffer_in);
+	device.destroyBuffer(buffer_out);
+	device.destroy();
+	instance.destroy();
 	return true;
 }
