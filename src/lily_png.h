@@ -9,6 +9,7 @@
 #include "filter.h"
 #include "convert.h"
 #include <zlib.h>
+#include <expected>
 
 namespace lily_png
 {

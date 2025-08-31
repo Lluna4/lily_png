@@ -231,12 +231,16 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	vk::DeviceQueueCreateInfo device_queue_info(vk::DeviceQueueCreateFlags(), queue_family_index, 1, &queue_priority);
 
 	#ifdef __APPLE__
-	std::vector<const char *> device_extensions = {"VK_KHR_portability_subset"};
+	std::vector<const char *> device_extensions = {"VK_KHR_portability_subset", "VK_KHR_8bit_storage", "VK_KHR_shader_float16_int8"};
 	#else
-	std::vector<const char *> device_extensions = {};
+	std::vector<const char *> device_extensions = {"VK_KHR_8bit_storage", "VK_KHR_shader_float16_int8"};
 	#endif
 	vk::PhysicalDeviceFeatures device_features = vk::PhysicalDeviceFeatures();
+	vk::PhysicalDeviceVulkan12Features vulkan_1_2_features = vk::PhysicalDeviceVulkan12Features();
+	vulkan_1_2_features.shaderInt8 = VK_TRUE;
+	vulkan_1_2_features.uniformAndStorageBuffer8BitAccess = VK_TRUE;
 	vk::DeviceCreateInfo device_info(vk::DeviceCreateFlags(), 1, &device_queue_info, 0, nullptr, device_extensions.size(), device_extensions.data(), &device_features);
+	device_info.setPNext(&vulkan_1_2_features);
 	vk::Device device = physical_device.createDevice(device_info);
 
 
@@ -277,12 +281,12 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	vk::Buffer buffer_params = buffer_params_ret.second;
 	parameters *param = (parameters *)device.mapMemory(buffer_params_memory, 0, sizeof(parameters));
 
-	if (!std::filesystem::exists("../shaders/a.spv"))
+	if (!std::filesystem::exists("shaders/a.spv"))
 	{
 		std::println("Shader file not found");
 		return -1;
 	}
-	std::string compiled_code = get_file_contents("../shaders/a.spv");
+	std::string compiled_code = get_file_contents("shaders/a.spv");
 	vk::ShaderModuleCreateInfo shader_info(vk::ShaderModuleCreateFlags(), compiled_code.size(), reinterpret_cast<const uint32_t*>(compiled_code.c_str()));
 	vk::ShaderModule shader_module = device.createShaderModule(shader_info);
 
@@ -305,7 +309,7 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	vk::Pipeline pipeline = device.createComputePipeline(pipeline_cache, compute_pipeline_info).value;
 
 	
-	vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer, 2);
+	vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer, 3);
 	vk::DescriptorPoolCreateInfo descriptor_pool_info(vk::DescriptorPoolCreateFlags(), 1, descriptor_pool_size);
 	vk::DescriptorPool descriptor_pool = device.createDescriptorPool(descriptor_pool_info);
 
@@ -338,6 +342,7 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	while (true)
 	{
 		auto res = device.waitForFences({fence}, true, -1);
+		device.resetFences({fence});
 
 		if (y == meta.height)
 		{
@@ -352,7 +357,7 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 		command_buffer.begin(command_buffer_begin_info);
 		command_buffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
 		command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline_layout, 0, {descriptor_sets[0]}, {});
-		command_buffer.dispatch(y, 1, 1);
+		command_buffer.dispatch(y + 1, 1, 1);
 		command_buffer.end();
 		vk::SubmitInfo submit_info(0, nullptr, nullptr, 1, &command_buffer);
 		queue.submit({submit_info}, fence);
@@ -370,6 +375,9 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 
 	device.unmapMemory(buffer_in_memory);
 	device.unmapMemory(buffer_out_memory);
+	device.unmapMemory(buffer_params_memory);
+	device.destroyFence(fence);
+	device.destroyCommandPool(command_pool);
 	device.destroyPipelineLayout(pipeline_layout);
 	device.destroyPipelineCache(pipeline_cache);
 	device.destroyShaderModule(shader_module);
@@ -378,8 +386,10 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	device.destroyDescriptorSetLayout(descriptor_set_layout);
 	device.freeMemory(buffer_in_memory);
 	device.freeMemory(buffer_out_memory);
+	device.freeMemory(buffer_params_memory);
 	device.destroyBuffer(buffer_in);
 	device.destroyBuffer(buffer_out);
+	device.destroyBuffer(buffer_params);
 	device.destroy();
 	instance.destroy();
 	return true;

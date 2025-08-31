@@ -1,4 +1,7 @@
-#version 430
+#version 450
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_8bit_storage : require
 
 layout(local_size_x = 1, local_size_y = 1) in;
 
@@ -11,14 +14,56 @@ struct parameters
 };
 
 
-layout(std430, binding = 0) buffer lay0 { float buf_in[]; };
-layout(std430, binding = 1) buffer lay1 { float buf_out[]; };
-layout(std430, binding = 2) buffer lay2 { parameters param; };
+layout(std430, binding = 0) buffer lay0 { uint8_t img_data[]; };
+layout(std430, binding = 1) buffer lay1 { uint8_t dest[]; };
+layout(std430, binding = 2) buffer lay2 { parameters p; };
 
 void main()
 {
-	const int stride = param.scanline_size + 1;
-	int x = param.x_start + gl_GlobalInvocationID.x;
-    int y = param.y_start - gl_GlobalInvocationID.x;
+	const uint stride = p.scanline_size + 1;
+	uint x = p.x_start + gl_GlobalInvocationID.x;
+    uint y = p.y_start - gl_GlobalInvocationID.x;
 
+	uint8_t a = uint8_t(0);
+    if (x >= p.bytes_per_pixel)
+        a = dest[(y * p.scanline_size) + (x - p.bytes_per_pixel)];
+
+    uint8_t b = uint8_t(0);
+    if (y > 0)
+        b = dest[((y - 1) * p.scanline_size) + x];
+
+    uint8_t c = uint8_t(0);
+
+    if (x >= p.bytes_per_pixel && y > 0)
+        c = dest[((y - 1) * p.scanline_size) + (x - p.bytes_per_pixel)];
+	
+	int type = img_data[y * stride];
+	switch (type)
+    {
+        case 0:
+            dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + uint8_t(1)];
+            break;
+        case 1:
+            dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + uint8_t(1)] + a;
+            break;
+        case 2:
+            dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + uint8_t(1)] + b;
+            break;
+        case 3:
+
+            dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + uint8_t(1)] + ((a + b)/uint8_t(2));
+            break;
+        case 4:
+            int pred = a+b-c;
+            int pred1 = abs(pred-a);
+            int pred2 = abs(pred-b);
+            int pred3 = abs(pred-c);
+            if (pred1 <= pred2 && pred1 <= pred3)
+                dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + 1] + a;
+            else if (pred2 <= pred3)
+                dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + 1] + b;
+            else
+                dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + 1] + c;
+            break;
+    }
 }
