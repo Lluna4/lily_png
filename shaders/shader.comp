@@ -5,65 +5,72 @@
 
 layout(local_size_x = 1, local_size_y = 1) in;
 
-struct parameters
+layout( push_constant ) uniform constants
 {
 	int y_start;
 	int x_start;
 	int scanline_size;
 	int bytes_per_pixel;
-};
-
+    int stride;
+} p;
 
 layout(std430, binding = 0) buffer lay0 { uint8_t img_data[]; };
 layout(std430, binding = 1) buffer lay1 { uint8_t dest[]; };
-layout(std430, binding = 2) buffer lay2 { parameters p; };
 
 void main()
 {
-	const uint stride = p.scanline_size + 1;
-	uint x = p.x_start + gl_GlobalInvocationID.x;
-    uint y = p.y_start - gl_GlobalInvocationID.x;
+    const uint x = p.x_start + gl_GlobalInvocationID.x;
+    const uint y = p.y_start - gl_GlobalInvocationID.x;
 
-	uint8_t a = uint8_t(0);
-    if (x >= p.bytes_per_pixel)
-        a = dest[(y * p.scanline_size) + (x - p.bytes_per_pixel)];
-
-    uint8_t b = uint8_t(0);
-    if (y > 0)
-        b = dest[((y - 1) * p.scanline_size) + x];
-
-    uint8_t c = uint8_t(0);
-
-    if (x >= p.bytes_per_pixel && y > 0)
-        c = dest[((y - 1) * p.scanline_size) + (x - p.bytes_per_pixel)];
-	
-	int type = img_data[y * stride];
-	switch (type)
+    if (x >= p.scanline_size)
+        return;
+    switch (uint(img_data[y * p.stride]))
     {
         case 0:
-            dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + uint8_t(1)];
+            dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1];
             break;
         case 1:
-            dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + uint8_t(1)] + a;
+            if (x >= p.bytes_per_pixel)
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1] + dest[y * p.scanline_size + (x - p.bytes_per_pixel)];
+            else
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1];
             break;
         case 2:
-            dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + uint8_t(1)] + b;
+            if (y > 0)
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1] + dest[(y - 1) * p.scanline_size + x];
+            else
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1];
             break;
         case 3:
-
-            dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + uint8_t(1)] + ((a + b)/uint8_t(2));
+            if (x >= p.bytes_per_pixel && y > 0)
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1] + uint8_t(((uint(dest[y * p.scanline_size + (x - p.bytes_per_pixel)]) + uint(dest[(y - 1) * p.scanline_size + x]))/2));
+            else if(x >= p.bytes_per_pixel)
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1] + uint8_t(uint(dest[y * p.scanline_size + (x - p.bytes_per_pixel)])/2);
+            else if (y > 0)
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1] + uint8_t(uint(dest[(y - 1) * p.scanline_size + x]/2));
+            else
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1];
             break;
         case 4:
-            int pred = a+b-c;
-            int pred1 = abs(pred-a);
-            int pred2 = abs(pred-b);
-            int pred3 = abs(pred-c);
-            if (pred1 <= pred2 && pred1 <= pred3)
-                dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + 1] + a;
-            else if (pred2 <= pred3)
-                dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + 1] + b;
+            if (x >= p.bytes_per_pixel && y > 0)
+            {
+                int pred = int(dest[y * p.scanline_size + (x - p.bytes_per_pixel)]) + int(dest[(y - 1) * p.scanline_size + x]) - int(dest[(y - 1) * p.scanline_size + (x - p.bytes_per_pixel)]);
+                int pred1 = abs(pred - int(dest[y * p.scanline_size + (x - p.bytes_per_pixel)]));
+                int pred2 = abs(pred - int(dest[(y - 1) * p.scanline_size + x]));
+                int pred3 = abs(pred - int(dest[(y - 1) * p.scanline_size + (x - p.bytes_per_pixel)]));
+                if (pred1 <= pred2 && pred1 <= pred3)
+                    dest[(y * p.scanline_size) + x] = img_data[(y * p.stride) + x + 1] + dest[y * p.scanline_size + (x - p.bytes_per_pixel)];
+                else if (pred2 <= pred3)
+                    dest[(y * p.scanline_size) + x] = img_data[(y * p.stride) + x + 1] + dest[(y - 1) * p.scanline_size + x];
+                else
+                    dest[(y * p.scanline_size) + x] = img_data[(y * p.stride) + x + 1] + dest[(y - 1) * p.scanline_size + (x - p.bytes_per_pixel)];
+            }
+            else if(x >= p.bytes_per_pixel)
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1] + dest[y * p.scanline_size + (x - p.bytes_per_pixel)];
+            else if (y > 0)
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1] + dest[(y - 1) * p.scanline_size + x];
             else
-                dest[(y * p.scanline_size) + x] = img_data[(y * stride) + x + 1] + c;
+                dest[y * p.scanline_size + x] = img_data[y * p.stride + x + 1];
             break;
     }
 }

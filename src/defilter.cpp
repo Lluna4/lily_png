@@ -13,6 +13,7 @@ struct parameters
 	int x_start;
 	int scanline_size;
 	int bytes_per_pixel;
+	int stride;
 };
 
 std::expected<bool, lily_png::png_error> lily_png::defilter_pixel(unsigned char *dest, unsigned char x,unsigned char a, unsigned char b, unsigned char c, unsigned char type)
@@ -150,7 +151,7 @@ std::expected<std::pair<vk::DeviceMemory, vk::Buffer>, Error> create_buffer(cons
     int propierty_index = -1;
     for (int i = 0; i < memory_properties.memoryTypeCount; i++)
     {
-        if (memory_properties.memoryTypes[i].propertyFlags & vk::MemoryPropertyFlags(vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent))
+        if (memory_properties.memoryTypes[i].propertyFlags & vk::MemoryPropertyFlags(vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostCached))
         {
             propierty_index = i;
             break;
@@ -179,7 +180,8 @@ std::string get_file_contents(std::string filename)
 
 std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<unsigned char> &src, file_reader::buffer<unsigned char> &dest, metadata &meta)
 {
-
+	using clock = std::chrono::system_clock;
+    using ms = std::chrono::duration<double, std::milli>;
 	auto pixel_size_ret = get_pixel_bit_size(meta);
 	if (!pixel_size_ret)
 		return std::unexpected(pixel_size_ret.error());
@@ -198,10 +200,11 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 
 	vk::ApplicationInfo app_info("Test_compute", 1, nullptr, 0, VK_API_VERSION_1_4);
 	
-	#ifdef __APPLE__
-	std::vector<const char *> layers = {"VK_LAYER_KHRONOS_validation"};
-	#else
+	#ifdef NDEBUG
 	std::vector<const char *> layers = {};
+	#else
+	std::vector<const char *> layers = {"VK_LAYER_KHRONOS_validation"};
+	std::println("Debug mode");
 	#endif
 	#ifdef __APPLE__
 	std::vector<const char *> extensions = {"VK_KHR_portability_enumeration", VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
@@ -270,23 +273,14 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	vk::DeviceMemory buffer_out_memory = buffer_out_ret.first;
 	vk::Buffer buffer_out = buffer_out_ret.second;
 
-	auto buffer_params_ret_ret = create_buffer(device, physical_device, vk::BufferUsageFlagBits::eStorageBuffer, sizeof(parameters));
-	if (!buffer_params_ret_ret)
-	{
-		std::println("{}", buffer_params_ret_ret.error());
-		return -1;
-	}
-	auto buffer_params_ret = buffer_params_ret_ret.value();
-	vk::DeviceMemory buffer_params_memory = buffer_params_ret.first;
-	vk::Buffer buffer_params = buffer_params_ret.second;
-	parameters *param = (parameters *)device.mapMemory(buffer_params_memory, 0, sizeof(parameters));
+	parameters param{};
 
-	if (!std::filesystem::exists("shaders/a.spv"))
+	if (!std::filesystem::exists("/Users/luna/lily_png/shaders/a.spv"))
 	{
 		std::println("Shader file not found");
 		return -1;
 	}
-	std::string compiled_code = get_file_contents("shaders/a.spv");
+	std::string compiled_code = get_file_contents("/Users/luna/lily_png/shaders/a.spv");
 	vk::ShaderModuleCreateInfo shader_info(vk::ShaderModuleCreateFlags(), compiled_code.size(), reinterpret_cast<const uint32_t*>(compiled_code.c_str()));
 	vk::ShaderModule shader_module = device.createShaderModule(shader_info);
 
@@ -294,13 +288,14 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	const std::vector<vk::DescriptorSetLayoutBinding> descriptor_set_layout_binding = 
 	{
 		{0, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute},
-		{1, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute},
-		{2, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute}
+		{1, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute}
 	};
 	vk::DescriptorSetLayoutCreateInfo descriptor_layout_info(vk::DescriptorSetLayoutCreateFlags(), descriptor_set_layout_binding);
 	vk::DescriptorSetLayout descriptor_set_layout = device.createDescriptorSetLayout(descriptor_layout_info);
 
-	vk::PipelineLayoutCreateInfo pipeline_layout_info(vk::PipelineLayoutCreateFlags(), descriptor_set_layout);
+	vk::PushConstantRange push_range(vk::ShaderStageFlagBits::eCompute, 0, sizeof(parameters));
+
+	vk::PipelineLayoutCreateInfo pipeline_layout_info(vk::PipelineLayoutCreateFlags(), descriptor_set_layout, push_range);
 	vk::PipelineLayout pipeline_layout = device.createPipelineLayout(pipeline_layout_info);
 	vk::PipelineCache pipeline_cache = device.createPipelineCache(vk::PipelineCacheCreateInfo());
 
@@ -309,7 +304,7 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	vk::Pipeline pipeline = device.createComputePipeline(pipeline_cache, compute_pipeline_info).value;
 
 	
-	vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer, 3);
+	vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer, 2);
 	vk::DescriptorPoolCreateInfo descriptor_pool_info(vk::DescriptorPoolCreateFlags(), 1, descriptor_pool_size);
 	vk::DescriptorPool descriptor_pool = device.createDescriptorPool(descriptor_pool_info);
 
@@ -317,65 +312,69 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	std::vector<vk::DescriptorSet> descriptor_sets = device.allocateDescriptorSets(descriptor_alloc_info);
 	vk::DescriptorBufferInfo buffer_in_info(buffer_in, 0, size);
 	vk::DescriptorBufferInfo buffer_out_info(buffer_out, 0, size);
-	vk::DescriptorBufferInfo buffer_params_info(buffer_params, 0, sizeof(parameters));
 	std::vector<vk::WriteDescriptorSet> write_descriptor_sets =
 	{
 		{descriptor_sets[0], 0, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &buffer_in_info},
-		{descriptor_sets[0], 1, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &buffer_out_info},
-		{descriptor_sets[0], 2, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &buffer_params_info}
+		{descriptor_sets[0], 1, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &buffer_out_info}
 	};
 	device.updateDescriptorSets(write_descriptor_sets, {});
 
-	param->bytes_per_pixel = pixel_size_bytes;
-	param->scanline_size = scanline_size;
-	vk::CommandPoolCreateInfo command_pool_info(vk::CommandPoolCreateFlags(), queue_family_index);
+	param.bytes_per_pixel = pixel_size_bytes;
+	param.scanline_size = scanline_size;
+	param.stride = stride;
+	vk::CommandPoolCreateInfo command_pool_info(vk::CommandPoolCreateFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer), queue_family_index);
 	vk::CommandPool command_pool = device.createCommandPool(command_pool_info);
 
 	vk::CommandBufferAllocateInfo command_buffer_alloc_info(command_pool, vk::CommandBufferLevel::ePrimary, 1);
 	std::vector<vk::CommandBuffer> command_buffers = device.allocateCommandBuffers(command_buffer_alloc_info);
 
 	vk::CommandBuffer command_buffer = command_buffers.front();
-	vk::FenceCreateInfo fence_info(vk::FenceCreateFlags(vk::FenceCreateFlagBits::eSignaled));
-	vk::Fence fence = device.createFence(fence_info);
+	vk::Fence fence = device.createFence(vk::FenceCreateInfo());
 	vk::Queue queue = device.getQueue(queue_family_index, 0);
-
+	vk::MemoryBarrier memory_barrier(
+		vk::AccessFlagBits::eShaderWrite,
+		vk::AccessFlagBits::eShaderRead
+	);
+	vk::CommandBufferBeginInfo command_buffer_begin_info(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+	command_buffer.begin(command_buffer_begin_info);
+	command_buffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
+	command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline_layout, 0, {descriptor_sets[0]}, {});
 	while (true)
 	{
-		auto res = device.waitForFences({fence}, true, -1);
-		device.resetFences({fence});
-
-		if (y == meta.height)
+		command_buffer.pushConstants(pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0, sizeof(parameters), &param);
+		command_buffer.dispatch(y + 1, 1, 1);
+        command_buffer.pipelineBarrier(
+            vk::PipelineStageFlagBits::eComputeShader,
+            vk::PipelineStageFlagBits::eComputeShader,
+            vk::DependencyFlags(),
+            {memory_barrier},
+            {},
+            {}
+        );
+		if (!y_end)
+			y++;
+		else
+			x++;
+		if (y >= meta.height)
 		{
 			y_end = true;
 			y--;
 		}
-		
-		param->x_start = x;
-		param->y_start = y;
-		vkResetCommandBuffer(command_buffer, 0);
-		vk::CommandBufferBeginInfo command_buffer_begin_info(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-		command_buffer.begin(command_buffer_begin_info);
-		command_buffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
-		command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline_layout, 0, {descriptor_sets[0]}, {});
-		command_buffer.dispatch(y + 1, 1, 1);
-		command_buffer.end();
-		vk::SubmitInfo submit_info(0, nullptr, nullptr, 1, &command_buffer);
-		queue.submit({submit_info}, fence);
-
-		if (y_end == false)
-			y++;
-		else
-			x++;
-
-		if (x >= meta.width * pixel_size_bytes)
+		if (x >= scanline_size)
 			break;
+		param.x_start = x;
+		param.y_start = y;
 	}
+	command_buffer.end();
+	vk::SubmitInfo submit_info(0, nullptr, nullptr, 1, &command_buffer);
+	queue.submit({submit_info}, fence);
+	auto res = device.waitForFences({fence}, true, -1);
 	char *out_data = (char *)device.mapMemory(buffer_out_memory, 0, size);
-	memcpy(dest.data, out_data, size);
+	std::memcpy(dest.data, out_data, size);
+
 
 	device.unmapMemory(buffer_in_memory);
 	device.unmapMemory(buffer_out_memory);
-	device.unmapMemory(buffer_params_memory);
 	device.destroyFence(fence);
 	device.destroyCommandPool(command_pool);
 	device.destroyPipelineLayout(pipeline_layout);
@@ -386,10 +385,8 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	device.destroyDescriptorSetLayout(descriptor_set_layout);
 	device.freeMemory(buffer_in_memory);
 	device.freeMemory(buffer_out_memory);
-	device.freeMemory(buffer_params_memory);
 	device.destroyBuffer(buffer_in);
 	device.destroyBuffer(buffer_out);
-	device.destroyBuffer(buffer_params);
 	device.destroy();
 	instance.destroy();
 	return true;
