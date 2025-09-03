@@ -27,3 +27,5 @@ target_include_directories(lily_png
         PRIVATE
         dependencies
 )
+
+add_subdirectory(examples)
