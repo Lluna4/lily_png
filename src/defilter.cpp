@@ -180,8 +180,6 @@ std::string get_file_contents(std::string filename)
 
 std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<unsigned char> &src, file_reader::buffer<unsigned char> &dest, metadata &meta)
 {
-	using clock = std::chrono::system_clock;
-    using ms = std::chrono::duration<double, std::milli>;
 	auto pixel_size_ret = get_pixel_bit_size(meta);
 	if (!pixel_size_ret)
 		return std::unexpected(pixel_size_ret.error());
@@ -259,8 +257,10 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	vk::Buffer buffer_in = buffer_in_ret.second;
 
 	
-	float *in_data = (float *)device.mapMemory(buffer_in_memory, 0, size);
+	char *in_data = (char *)device.mapMemory(buffer_in_memory, 0, size);
 	std::memcpy(in_data, src.data, size);
+	device.unmapMemory(buffer_in_memory);
+	
 
 	auto buffer_out_ret_ret = create_buffer(device, physical_device, vk::BufferUsageFlagBits::eStorageBuffer, size);
 	if (!buffer_out_ret_ret)
@@ -275,12 +275,12 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 
 	parameters param{};
 
-	if (!std::filesystem::exists("/Users/luna/lily_png/shaders/a.spv"))
+	if (!std::filesystem::exists("shaders/a.spv"))
 	{
 		std::println("Shader file not found");
 		return -1;
 	}
-	std::string compiled_code = get_file_contents("/Users/luna/lily_png/shaders/a.spv");
+	std::string compiled_code = get_file_contents("shaders/a.spv");
 	vk::ShaderModuleCreateInfo shader_info(vk::ShaderModuleCreateFlags(), compiled_code.size(), reinterpret_cast<const uint32_t*>(compiled_code.c_str()));
 	vk::ShaderModule shader_module = device.createShaderModule(shader_info);
 
@@ -373,7 +373,6 @@ std::expected<bool, lily_png::png_error> lily_png::defilter(file_reader::buffer<
 	std::memcpy(dest.data, out_data, size);
 
 
-	device.unmapMemory(buffer_in_memory);
 	device.unmapMemory(buffer_out_memory);
 	device.destroyFence(fence);
 	device.destroyCommandPool(command_pool);
